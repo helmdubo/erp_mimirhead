@@ -20,17 +20,15 @@ async function fetchTables(): Promise<TableResult> {
     };
   }
 
-  const { data, error } = await client
-    .from("pg_tables")
-    .select("schemaname, tablename")
-    .in("schemaname", ["public", "kaiten"])
-    .order("schemaname", { ascending: true })
-    .order("tablename", { ascending: true });
+  // Используем RPC функцию для получения списка таблиц
+  const { data, error } = await client.rpc("list_tables", {
+    schema_names: ["public", "kaiten"]
+  });
 
   if (error) {
     return {
       status: "error",
-      message: `Не удалось получить таблицы: ${error.message}`,
+      message: `Не удалось получить таблицы: ${error.message}. Убедитесь, что миграции применены.`,
     };
   }
 
