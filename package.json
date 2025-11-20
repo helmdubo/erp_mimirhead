@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "migrate": "node scripts/apply-migrations.js",
+    "db:push": "supabase db push",
+    "db:types": "supabase gen types typescript --linked > types/database.types.ts",
+    "db:pull": "supabase db pull"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.0",
