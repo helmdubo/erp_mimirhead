@@ -21,7 +21,7 @@ async function fetchTables(): Promise<TableResult> {
   }
 
   const { data, error } = await client
-    .from<TableRow>("pg_tables")
+    .from("pg_tables")
     .select("schemaname, tablename")
     .in("schemaname", ["public", "kaiten"])
     .order("schemaname", { ascending: true })
@@ -36,7 +36,7 @@ async function fetchTables(): Promise<TableResult> {
 
   return {
     status: "ok",
-    tables: data,
+    tables: (data ?? []) as TableRow[],
   };
 }
 
