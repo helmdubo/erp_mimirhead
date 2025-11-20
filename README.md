@@ -1,37 +1,178 @@
 # ERP Mimirhead
 
-Root-level Next.js 15 (App Router) scaffold with Supabase configuration for the internal ERP dashboard.
+Внутренний дашборд для 3D game art студии. Next.js 15 + Supabase + Tailwind CSS.
 
-## Getting started
+## 🚀 Быстрый старт
 
-1. Install dependencies:
+### Локальная разработка
+
+1. Установите зависимости:
    ```bash
    npm install
    ```
-2. Run the dev server:
+
+2. Создайте `.env.local` с переменными из Supabase:
+   ```bash
+   NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+   SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+   ```
+
+3. Запустите dev сервер:
    ```bash
    npm run dev
    ```
-3. Open http://localhost:3000.
 
-## Supabase setup
+4. Откройте http://localhost:3000
 
-- Project settings are stored in `supabase/config.toml`.
-- Schemas live in `supabase/migrations/` (initial Kaiten mirror is already committed).
-- Generated types are in `types/database.types.ts` and power the Supabase client in `lib/supabase/client.ts`.
+---
 
-If you need to refresh types after altering migrations, run the Supabase CLI:
+## 📦 Структура проекта
+
+```
+erp_mimirhead/
+├── app/                    # Next.js App Router
+│   ├── page.tsx           # Главная страница (показывает таблицы БД)
+│   └── debug/             # Debug страница для диагностики
+├── lib/supabase/          # Supabase клиенты
+│   ├── client.ts          # Клиентский клиент
+│   └── server.ts          # Серверный клиент (service role)
+├── supabase/
+│   ├── migrations/        # SQL миграции (источник правды!)
+│   └── config.toml        # Конфигурация Supabase
+├── types/
+│   └── database.types.ts  # АВТОГЕНЕРИРУЕМЫЕ типы БД
+├── scripts/
+│   ├── apply-migrations.js # Умный скрипт для применения миграций
+│   └── README.md          # Документация по миграциям
+└── .github/workflows/
+    └── apply-migrations.yml # GitHub Actions для автоматических миграций
+```
+
+---
+
+## 🗄️ База данных (Supabase)
+
+### Схема `kaiten`
+Зеркало данных из Kaiten CRM:
+- **users** - пользователи
+- **spaces** - пространства
+- **boards** - доски
+- **columns** - колонки
+- **lanes** - дорожки
+- **card_types** - типы карточек
+- **property_definitions** - определения кастомных свойств
+- **tags** - теги
+- **cards** - карточки задач
+- **card_tags** - связка карточек и тегов
+
+---
+
+## 🔧 Работа с миграциями
+
+### Вариант 1: Автоматически (GitHub Actions)
+
+После настройки секретов в GitHub (см. `.github/GITHUB_SECRETS_SETUP.md`):
+- Просто сделайте push с изменениями в `supabase/migrations/`
+- GitHub Actions автоматически применит миграции
+- TypeScript типы обновятся автоматически
+
+### Вариант 2: Вручную через NPM скрипты
+
 ```bash
-supabase gen types typescript --local > types/database.types.ts
+# Полный процесс (миграции + типы)
+npm run migrate
+
+# Только миграции
+npm run db:push
+
+# Только обновить типы
+npm run db:types
+
+# Скачать схему из удаленной БД
+npm run db:pull
 ```
 
-## Environment variables (Vercel / local)
+### Вариант 3: Через Supabase Dashboard
 
-```
-NEXT_PUBLIC_SUPABASE_URL=<your-supabase-url>
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<your-anon-key>
-# Optional for server-only calls
-SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
+См. подробную инструкцию в `SETUP_GUIDE.md`
+
+---
+
+## 🚀 Деплой на Vercel
+
+### Переменные окружения (обязательно!)
+
+В Vercel Settings → Environment Variables добавьте:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGc...
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGc...  # Для серверных запросов
 ```
 
-Set the Vercel project root to this repository root (where `package.json` lives) so the build can locate the Next.js app.
+### Автоматический деплой
+
+- Push в `main` → автоматический деплой на production
+- Push в `claude/**` → preview деплой
+
+---
+
+## 🧪 Отладка
+
+Откройте `/debug` на вашем сайте для диагностики:
+- Проверка переменных окружения
+- Тестирование подключения к Supabase
+- Проверка функций БД
+
+---
+
+## 📚 Документация
+
+- `AGENTS.md` - Правила для AI агентов (Claude)
+- `SETUP_GUIDE.md` - Пошаговая инструкция по настройке
+- `.github/GITHUB_SECRETS_SETUP.md` - Настройка GitHub Actions
+- `scripts/README.md` - Документация по скриптам миграций
+
+---
+
+## 🛠️ Tech Stack
+
+- **Framework:** Next.js 15 (App Router)
+- **Language:** TypeScript (strict mode)
+- **Styling:** Tailwind CSS 4
+- **Backend:** Supabase (PostgreSQL + Auth + Storage)
+- **Database ORM:** Supabase JS Client
+- **Deployment:** Vercel
+- **CI/CD:** GitHub Actions
+
+---
+
+## 📝 Правила разработки
+
+1. **База данных:**
+   - Схема БД определяется ТОЛЬКО в `supabase/migrations/`
+   - НЕ изменяйте БД через Supabase Dashboard UI
+   - Всегда создавайте миграции для изменений схемы
+
+2. **TypeScript типы:**
+   - `types/database.types.ts` генерируется автоматически
+   - НЕ редактируйте этот файл вручную
+   - Обновляйте типы после каждой миграции: `npm run db:types`
+
+3. **Коммиты:**
+   - Всегда используйте ветки `claude/**` для AI разработки
+   - Миграции коммитятся вместе с кодом
+   - GitHub Actions применит миграции автоматически
+
+---
+
+## 🎯 Готово к работе!
+
+Проект полностью настроен и готов к разработке. Миграции автоматизированы, типы генерируются, деплой настроен.
+
+**Следующие шаги:**
+1. Добавьте страницы в `app/`
+2. Создавайте компоненты в `components/`
+3. При изменении БД создавайте миграции в `supabase/migrations/`
+4. Просто делайте push - всё остальное автоматически!
