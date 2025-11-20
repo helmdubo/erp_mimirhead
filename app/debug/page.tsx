@@ -33,8 +33,7 @@ export default async function DebugPage() {
 
     // Test 2: Проверка функции list_tables
     try {
-      // @ts-expect-error - function may not be in types yet
-      const { data: tablesData, error: tablesError } = await client.rpc("list_tables");
+      const { data: tablesData, error: tablesError } = await (client.rpc as any)("list_tables");
 
       results.tests["list_tables RPC function"] = {
         success: !tablesError,
