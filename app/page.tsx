@@ -22,9 +22,7 @@ async function fetchTables(): Promise<TableResult> {
 
   // Используем RPC функцию для получения списка таблиц
   // @ts-expect-error - list_tables will be created by migration, types will be regenerated later
-  const { data, error } = await client.rpc("list_tables", {
-    schema_names: ["public", "kaiten"]
-  });
+  const { data, error } = await client.rpc("list_tables");
 
   if (error) {
     return {
