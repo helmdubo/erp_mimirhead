@@ -31,7 +31,7 @@ You MUST NOT introduce other major frameworks (no Redux, no Zustand, no alternat
 Assume the repository is structured roughly like this:
 
 ```text
-studio-dashboard/
+ERP-mimirhead/
 ├── app/                      # Next.js App Router
 │   ├── (public)/             # Marketing / public pages (optional)
 │   ├── (dashboard)/          # Auth-protected dashboard
