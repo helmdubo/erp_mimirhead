@@ -33,10 +33,7 @@ export default async function DebugPage() {
 
     // Test 2: Проверка функции list_tables
     try {
-      // @ts-expect-error - function may not be in types yet
-      const { data: tablesData, error: tablesError } = await client.rpc("list_tables", {
-        schema_names: ["public", "kaiten"],
-      });
+      const { data: tablesData, error: tablesError } = await (client.rpc as any)("list_tables");
 
       results.tests["list_tables RPC function"] = {
         success: !tablesError,
@@ -45,23 +42,6 @@ export default async function DebugPage() {
       };
     } catch (e: any) {
       results.tests["list_tables RPC function"] = {
-        success: false,
-        error: e.message,
-      };
-    }
-
-    // Test 3: Проверка функции без параметров
-    try {
-      // @ts-expect-error
-      const { data: tables2, error: error2 } = await client.rpc("list_tables");
-
-      results.tests["list_tables without params"] = {
-        success: !error2,
-        error: error2?.message,
-        data: tables2,
-      };
-    } catch (e: any) {
-      results.tests["list_tables without params"] = {
         success: false,
         error: e.message,
       };
