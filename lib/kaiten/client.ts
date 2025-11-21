@@ -53,6 +53,16 @@ async function fetchKaiten<T>(
     });
   }
 
+  // Детальное логирование для отладки
+  console.log("🔍 Kaiten API Request:", {
+    url: url.toString(),
+    endpoint,
+    hasToken: !!KAITEN_TOKEN,
+    tokenLength: KAITEN_TOKEN?.length,
+    tokenPrefix: KAITEN_TOKEN?.substring(0, 8) + "...",
+    baseUrl: KAITEN_URL,
+  });
+
   const response = await fetch(url.toString(), {
     headers: {
       Authorization: `Bearer ${KAITEN_TOKEN}`,
@@ -64,11 +74,19 @@ async function fetchKaiten<T>(
 
   if (!response.ok) {
     const errorText = await response.text();
+    console.error("❌ Kaiten API Error:", {
+      status: response.status,
+      statusText: response.statusText,
+      url: url.toString(),
+      errorBody: errorText,
+      headers: Object.fromEntries(response.headers.entries()),
+    });
     throw new Error(
       `Kaiten API Error ${response.status}: ${response.statusText}. ${errorText}`
     );
   }
 
+  console.log("✅ Kaiten API Success:", endpoint);
   return response.json();
 }
 
