@@ -48,9 +48,18 @@ export async function POST(request: Request) {
     const result = await handleWebhookEvent(event, data, supabase);
 
     // 5. Логируем webhook в sync_logs
-    await logWebhook(supabase, event, data.id, result.success, result.error);
+    await logWebhook(
+      supabase,
+      event,
+      data.id,
+      result.success,
+      'error' in result ? result.error : undefined
+    );
 
-    return NextResponse.json({ success: result.success, message: result.message });
+    return NextResponse.json({
+      success: result.success,
+      message: 'message' in result ? result.message : undefined
+    });
   } catch (error: any) {
     console.error("❌ Webhook handler error:", error);
     return NextResponse.json(
