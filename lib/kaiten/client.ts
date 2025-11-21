@@ -21,8 +21,21 @@ const KAITEN_URL = process.env.KAITEN_API_URL || "";
 const KAITEN_TOKEN = process.env.KAITEN_API_TOKEN || "";
 const DEFAULT_PAGE_SIZE = 100;
 
-if (!KAITEN_TOKEN && process.env.NODE_ENV !== "development") {
-  console.warn("⚠️  KAITEN_API_TOKEN is not set");
+// Валидация обязательных переменных окружения
+if (!KAITEN_URL || !KAITEN_TOKEN) {
+  console.error(
+    "❌ Missing Kaiten API credentials:\n" +
+    "   Set KAITEN_API_URL=https://your-company.kaiten.ru\n" +
+    "   Set KAITEN_API_TOKEN=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  );
+}
+
+// Проверяем что пользователь не добавил /api/latest в URL (частая ошибка)
+if (KAITEN_URL && (KAITEN_URL.includes('/api/latest') || KAITEN_URL.includes('/api/v1'))) {
+  console.error(
+    "❌ KAITEN_API_URL should NOT include /api/latest or /api/v1\n" +
+    "   Use only: https://your-company.kaiten.ru"
+  );
 }
 
 /**
