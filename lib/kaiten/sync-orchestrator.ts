@@ -412,8 +412,8 @@ export class SyncOrchestrator {
     entity_type: string;
     last_full_sync_at: string | null;
     last_incremental_sync_at: string | null;
-    total_records: number;
-    status: string;
+    total_records: number | null; // Разрешаем null как в database.types.ts
+    status: string | null;        // Разрешаем null как в database.types.ts
     error_message: string | null;
   } | null> {
     if (!this.supabase) return null;
