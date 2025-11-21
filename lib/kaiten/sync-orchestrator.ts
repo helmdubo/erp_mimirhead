@@ -408,7 +408,14 @@ export class SyncOrchestrator {
 
   // === Методы работы с метаданными ===
 
-  private async getSyncMetadata(entityType: EntityType) {
+  private async getSyncMetadata(entityType: EntityType): Promise<{
+    entity_type: string;
+    last_full_sync_at: string | null;
+    last_incremental_sync_at: string | null;
+    total_records: number;
+    status: string;
+    error_message: string | null;
+  } | null> {
     if (!this.supabase) return null;
 
     const { data } = await this.supabase
