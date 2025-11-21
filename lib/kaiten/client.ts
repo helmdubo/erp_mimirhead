@@ -168,9 +168,30 @@ export const kaitenClient = {
 
   /**
    * Доски (Boards)
+   * ВАЖНО: Kaiten не имеет глобального эндпоинта /api/latest/boards.
+   * Доски получаются через перебор всех пространств.
    */
   async getBoards(params?: PaginationParams): Promise<KaitenBoard[]> {
-    return fetchAllPaginated<KaitenBoard>("boards", params);
+    console.log("📋 Fetching all spaces to discover boards...");
+    const spaces = await this.getSpaces();
+    console.log(`✅ Found ${spaces.length} spaces. Fetching boards for each...`);
+
+    const allBoards: KaitenBoard[] = [];
+
+    // Используем for..of для последовательной загрузки (защита от rate limit)
+    for (const space of spaces) {
+      try {
+        const spaceBoards = await this.getBoardsBySpace(space.id);
+        console.log(`  ↳ Space "${space.title}" (${space.id}): ${spaceBoards.length} boards`);
+        allBoards.push(...spaceBoards);
+      } catch (error) {
+        console.error(`❌ Failed to fetch boards for space ${space.id} ("${space.title}")`, error);
+        // Не падаем, если один спейс недоступен - продолжаем с остальными
+      }
+    }
+
+    console.log(`✅ Total boards fetched: ${allBoards.length}`);
+    return allBoards;
   },
 
   async getBoard(id: number): Promise<KaitenBoard> {
@@ -183,9 +204,27 @@ export const kaitenClient = {
 
   /**
    * Колонки (Columns)
+   * ВАЖНО: Если Kaiten не имеет глобального /columns, получаем через доски.
    */
   async getColumns(params?: PaginationParams): Promise<KaitenColumn[]> {
-    return fetchAllPaginated<KaitenColumn>("columns", params);
+    console.log("📊 Fetching all boards to discover columns...");
+    const boards = await this.getBoards();
+    console.log(`✅ Found ${boards.length} boards. Fetching columns for each...`);
+
+    const allColumns: KaitenColumn[] = [];
+
+    for (const board of boards) {
+      try {
+        const boardColumns = await this.getColumnsByBoard(board.id);
+        console.log(`  ↳ Board "${board.title}" (${board.id}): ${boardColumns.length} columns`);
+        allColumns.push(...boardColumns);
+      } catch (error) {
+        console.error(`❌ Failed to fetch columns for board ${board.id} ("${board.title}")`, error);
+      }
+    }
+
+    console.log(`✅ Total columns fetched: ${allColumns.length}`);
+    return allColumns;
   },
 
   async getColumnsByBoard(boardId: number): Promise<KaitenColumn[]> {
@@ -194,9 +233,27 @@ export const kaitenClient = {
 
   /**
    * Дорожки (Lanes)
+   * ВАЖНО: Если Kaiten не имеет глобального /lanes, получаем через доски.
    */
   async getLanes(params?: PaginationParams): Promise<KaitenLane[]> {
-    return fetchAllPaginated<KaitenLane>("lanes", params);
+    console.log("🛤️ Fetching all boards to discover lanes...");
+    const boards = await this.getBoards();
+    console.log(`✅ Found ${boards.length} boards. Fetching lanes for each...`);
+
+    const allLanes: KaitenLane[] = [];
+
+    for (const board of boards) {
+      try {
+        const boardLanes = await this.getLanesByBoard(board.id);
+        console.log(`  ↳ Board "${board.title}" (${board.id}): ${boardLanes.length} lanes`);
+        allLanes.push(...boardLanes);
+      } catch (error) {
+        console.error(`❌ Failed to fetch lanes for board ${board.id} ("${board.title}")`, error);
+      }
+    }
+
+    console.log(`✅ Total lanes fetched: ${allLanes.length}`);
+    return allLanes;
   },
 
   async getLanesByBoard(boardId: number): Promise<KaitenLane[]> {
