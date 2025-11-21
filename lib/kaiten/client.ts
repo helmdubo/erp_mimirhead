@@ -176,16 +176,25 @@ export const kaitenClient = {
 
     const allBoards: KaitenBoard[] = [];
 
-    // Используем for..of для последовательной загрузки (защита от rate limit)
-    for (const space of spaces) {
-      try {
-        const spaceBoards = await this.getBoardsBySpace(space.id);
-        console.log(`  ↳ Space "${space.title}" (${space.id}): ${spaceBoards.length} boards`);
-        allBoards.push(...spaceBoards);
-      } catch (error) {
-        console.error(`❌ Failed to fetch boards for space ${space.id} ("${space.title}")`, error);
-        // Не падаем, если один спейс недоступен - продолжаем с остальными
-      }
+    // Параллелизация с ограничением - по 5 пространств одновременно
+    const chunkSize = 5;
+    for (let i = 0; i < spaces.length; i += chunkSize) {
+      const chunk = spaces.slice(i, i + chunkSize);
+      const results = await Promise.allSettled(
+        chunk.map(async (space) => {
+          const spaceBoards = await this.getBoardsBySpace(space.id);
+          console.log(`  ↳ Space "${space.title}" (${space.id}): ${spaceBoards.length} boards`);
+          return spaceBoards;
+        })
+      );
+
+      results.forEach((result, idx) => {
+        if (result.status === 'fulfilled') {
+          allBoards.push(...result.value);
+        } else {
+          console.error(`❌ Failed to fetch boards for space ${chunk[idx].id}`, result.reason);
+        }
+      });
     }
 
     console.log(`✅ Total boards fetched: ${allBoards.length}`);
@@ -211,14 +220,25 @@ export const kaitenClient = {
 
     const allColumns: KaitenColumn[] = [];
 
-    for (const board of boards) {
-      try {
-        const boardColumns = await this.getColumnsByBoard(board.id);
-        console.log(`  ↳ Board "${board.title}" (${board.id}): ${boardColumns.length} columns`);
-        allColumns.push(...boardColumns);
-      } catch (error) {
-        console.error(`❌ Failed to fetch columns for board ${board.id} ("${board.title}")`, error);
-      }
+    // Параллелизация с ограничением - по 5 досок одновременно
+    const chunkSize = 5;
+    for (let i = 0; i < boards.length; i += chunkSize) {
+      const chunk = boards.slice(i, i + chunkSize);
+      const results = await Promise.allSettled(
+        chunk.map(async (board) => {
+          const boardColumns = await this.getColumnsByBoard(board.id);
+          console.log(`  ↳ Board "${board.title}" (${board.id}): ${boardColumns.length} columns`);
+          return boardColumns;
+        })
+      );
+
+      results.forEach((result, idx) => {
+        if (result.status === 'fulfilled') {
+          allColumns.push(...result.value);
+        } else {
+          console.error(`❌ Failed to fetch columns for board ${chunk[idx].id}`, result.reason);
+        }
+      });
     }
 
     console.log(`✅ Total columns fetched: ${allColumns.length}`);
@@ -240,14 +260,25 @@ export const kaitenClient = {
 
     const allLanes: KaitenLane[] = [];
 
-    for (const board of boards) {
-      try {
-        const boardLanes = await this.getLanesByBoard(board.id);
-        console.log(`  ↳ Board "${board.title}" (${board.id}): ${boardLanes.length} lanes`);
-        allLanes.push(...boardLanes);
-      } catch (error) {
-        console.error(`❌ Failed to fetch lanes for board ${board.id} ("${board.title}")`, error);
-      }
+    // Параллелизация с ограничением - по 5 досок одновременно
+    const chunkSize = 5;
+    for (let i = 0; i < boards.length; i += chunkSize) {
+      const chunk = boards.slice(i, i + chunkSize);
+      const results = await Promise.allSettled(
+        chunk.map(async (board) => {
+          const boardLanes = await this.getLanesByBoard(board.id);
+          console.log(`  ↳ Board "${board.title}" (${board.id}): ${boardLanes.length} lanes`);
+          return boardLanes;
+        })
+      );
+
+      results.forEach((result, idx) => {
+        if (result.status === 'fulfilled') {
+          allLanes.push(...result.value);
+        } else {
+          console.error(`❌ Failed to fetch lanes for board ${chunk[idx].id}`, result.reason);
+        }
+      });
     }
 
     console.log(`✅ Total lanes fetched: ${allLanes.length}`);

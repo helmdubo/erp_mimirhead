@@ -7,6 +7,9 @@ import { NextResponse } from "next/server";
 import { getServiceSupabaseClient } from "@/lib/supabase/server";
 import { kaitenUtils } from "@/lib/kaiten";
 
+// Увеличиваем timeout для длительных операций синхронизации
+export const maxDuration = 60; // Hobby plan: 60s, Pro plan: 300s
+
 /**
  * Обработчик POST запросов от Kaiten
  */
