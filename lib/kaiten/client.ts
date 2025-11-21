@@ -16,7 +16,13 @@ import type {
   PaginationParams,
 } from "./types";
 
-const KAITEN_URL = process.env.KAITEN_API_URL || "";
+// Исправление двойных слэшей в URL и удаление /api/latest если есть
+const RAW_URL = process.env.KAITEN_API_URL || "";
+const KAITEN_URL = RAW_URL
+  .replace(/\/$/, "")  // Убираем trailing slash
+  .replace(/\/api\/latest\/?$/, "")  // Убираем /api/latest если добавили
+  .replace(/\/api\/v1\/?$/, "");  // Убираем /api/v1 если добавили
+
 const KAITEN_TOKEN = process.env.KAITEN_API_TOKEN || "";
 const DEFAULT_PAGE_SIZE = 100;
 
@@ -26,14 +32,6 @@ if (!KAITEN_URL || !KAITEN_TOKEN) {
     "❌ Missing Kaiten API credentials:\n" +
     "   Set KAITEN_API_URL=https://your-company.kaiten.ru\n" +
     "   Set KAITEN_API_TOKEN=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-  );
-}
-
-// Проверяем что пользователь не добавил /api/latest в URL (частая ошибка)
-if (KAITEN_URL && (KAITEN_URL.includes('/api/latest') || KAITEN_URL.includes('/api/v1'))) {
-  console.error(
-    "❌ KAITEN_API_URL should NOT include /api/latest or /api/v1\n" +
-    "   Use only: https://your-company.kaiten.ru"
   );
 }
 
@@ -171,7 +169,7 @@ export const kaitenClient = {
    * ВАЖНО: Kaiten не имеет глобального эндпоинта /api/latest/boards.
    * Доски получаются через перебор всех пространств.
    */
-  async getBoards(_params?: PaginationParams): Promise<KaitenBoard[]> {
+  async getBoards(): Promise<KaitenBoard[]> {
     console.log("📋 Fetching all spaces to discover boards...");
     const spaces = await this.getSpaces();
     console.log(`✅ Found ${spaces.length} spaces. Fetching boards for each...`);
@@ -204,9 +202,9 @@ export const kaitenClient = {
 
   /**
    * Колонки (Columns)
-   * ВАЖНО: Если Kaiten не имеет глобального /columns, получаем через доски.
+   * ВАЖНО: Kaiten не имеет глобального /columns, получаем через доски.
    */
-  async getColumns(_params?: PaginationParams): Promise<KaitenColumn[]> {
+  async getColumns(): Promise<KaitenColumn[]> {
     console.log("📊 Fetching all boards to discover columns...");
     const boards = await this.getBoards();
     console.log(`✅ Found ${boards.length} boards. Fetching columns for each...`);
@@ -233,9 +231,9 @@ export const kaitenClient = {
 
   /**
    * Дорожки (Lanes)
-   * ВАЖНО: Если Kaiten не имеет глобального /lanes, получаем через доски.
+   * ВАЖНО: Kaiten не имеет глобального /lanes, получаем через доски.
    */
-  async getLanes(_params?: PaginationParams): Promise<KaitenLane[]> {
+  async getLanes(): Promise<KaitenLane[]> {
     console.log("🛤️ Fetching all boards to discover lanes...");
     const boards = await this.getBoards();
     console.log(`✅ Found ${boards.length} boards. Fetching lanes for each...`);
