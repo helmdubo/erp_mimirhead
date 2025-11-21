@@ -430,7 +430,13 @@ export class SyncOrchestrator {
   private async updateSyncMetadata(entityType: EntityType, incremental: boolean, totalRecords: number) {
     if (!this.supabase) return;
 
-    const update: any = {
+    const update: {
+      status: string;
+      error_message: null;
+      total_records: number;
+      last_incremental_sync_at?: string;
+      last_full_sync_at?: string;
+    } = {
       status: 'idle',
       error_message: null,
       total_records: totalRecords,
