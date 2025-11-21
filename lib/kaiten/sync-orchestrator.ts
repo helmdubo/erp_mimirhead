@@ -174,12 +174,13 @@ export class SyncOrchestrator {
     switch (entityType) {
       case 'spaces':
         return kaitenClient.getSpaces(params);
+      // ВАЖНО: boards, columns, lanes не принимают params - они получают всё через перебор родительских сущностей
       case 'boards':
-        return kaitenClient.getBoards(params);
+        return kaitenClient.getBoards();
       case 'columns':
-        return kaitenClient.getColumns(params);
+        return kaitenClient.getColumns();
       case 'lanes':
-        return kaitenClient.getLanes(params);
+        return kaitenClient.getLanes();
       case 'users':
         return kaitenClient.getUsers(params);
       case 'card_types':
