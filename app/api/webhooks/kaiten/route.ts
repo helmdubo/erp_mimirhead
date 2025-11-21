@@ -7,22 +7,19 @@ import { NextResponse } from "next/server";
 import { getServiceSupabaseClient } from "@/lib/supabase/server";
 import { kaitenUtils } from "@/lib/kaiten";
 
-// Секретный токен для валидации вебхуков (настройте в Kaiten)
-const WEBHOOK_SECRET = process.env.KAITEN_WEBHOOK_SECRET;
-
 /**
  * Обработчик POST запросов от Kaiten
  */
 export async function POST(request: Request) {
   try {
     // 1. Валидация вебхука (опционально, но рекомендуется)
-    if (WEBHOOK_SECRET) {
-      const signature = request.headers.get("x-kaiten-signature");
-      // TODO: Реализовать проверку HMAC signature
-      // if (!validateSignature(signature, body, WEBHOOK_SECRET)) {
-      //   return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-      // }
-    }
+    // TODO: Реализовать проверку HMAC signature
+    // if (WEBHOOK_SECRET) {
+    //   const signature = request.headers.get("x-kaiten-signature");
+    //   if (!validateSignature(signature, body, WEBHOOK_SECRET)) {
+    //     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+    //   }
+    // }
 
     // 2. Парсим тело запроса
     const body = await request.json();

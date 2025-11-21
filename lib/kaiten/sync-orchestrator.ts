@@ -5,7 +5,6 @@
 
 import { getServiceSupabaseClient } from "@/lib/supabase/server";
 import { kaitenClient, kaitenUtils } from "./client";
-import type { Database } from "@/types/database.types";
 
 type EntityType = 'spaces' | 'boards' | 'columns' | 'lanes' | 'users' | 'card_types' | 'property_definitions' | 'tags' | 'cards';
 
