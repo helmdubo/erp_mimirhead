@@ -216,25 +216,37 @@ export class SyncOrchestrator {
       records_skipped: 0,
     };
 
+    console.log(`💾 Starting upsert for ${entityType}: ${data.length} items`);
+    const startTime = Date.now();
+
     // Преобразуем данные в формат БД
+    console.log(`  🔄 Transforming ${data.length} items...`);
+    const transformStart = Date.now();
     const dbRows = await Promise.all(
       data.map(async (item) => await this.transformToDbFormat(entityType, item))
     );
+    console.log(`  ✅ Transform complete: ${Date.now() - transformStart}ms`);
 
     // Batch upsert (по 100 записей за раз чтобы не перегрузить БД)
     const batchSize = 100;
+    console.log(`  💾 Upserting in batches of ${batchSize}...`);
     for (let i = 0; i < dbRows.length; i += batchSize) {
       const batch = dbRows.slice(i, i + batchSize);
+      const batchNum = Math.floor(i / batchSize) + 1;
+      const totalBatches = Math.ceil(dbRows.length / batchSize);
 
+      const batchStart = Date.now();
       const { error } = await this.supabase
         .schema('kaiten')
         .from(entityType)
         .upsert(batch as any, { onConflict: 'id' });
 
       if (error) {
-        console.error(`Error upserting ${entityType}:`, error);
+        console.error(`❌ Error upserting ${entityType} batch ${batchNum}:`, error);
         throw error;
       }
+
+      console.log(`  ✅ Batch ${batchNum}/${totalBatches}: ${batch.length} rows in ${Date.now() - batchStart}ms`);
 
       stats.records_processed += batch.length;
       // TODO: Различать created vs updated (нужен отдельный запрос)
@@ -243,50 +255,84 @@ export class SyncOrchestrator {
 
     // Для карточек: синхронизируем M:N связи с тегами
     if (entityType === 'cards') {
+      console.log(`  🏷️ Syncing card tags for ${data.length} cards...`);
+      const tagsStart = Date.now();
       await this.syncCardTags(data);
+      console.log(`  ✅ Tags sync complete: ${Date.now() - tagsStart}ms`);
     }
+
+    const totalTime = Date.now() - startTime;
+    console.log(`✅ Upsert complete for ${entityType}: ${stats.records_processed} rows in ${totalTime}ms (${(totalTime/1000).toFixed(1)}s)`);
 
     return stats;
   }
 
   /**
-   * Синхронизация M:N связей карточек с тегами
+   * Синхронизация M:N связей карточек с тегами (ОПТИМИЗИРОВАННАЯ)
    */
   private async syncCardTags(cards: any[]): Promise<void> {
     if (!this.supabase) return;
+    if (cards.length === 0) return;
+
+    // Собираем все card_id для массового удаления
+    const cardIds = cards.map(c => c.id).filter(Boolean);
+
+    if (cardIds.length === 0) return;
+
+    console.log(`    🗑️ Deleting old card_tags for ${cardIds.length} cards...`);
+
+    // Одно массовое удаление вместо N запросов
+    const { error: deleteError } = await this.supabase
+      .schema('kaiten')
+      .from('card_tags')
+      .delete()
+      .in('card_id', cardIds);
+
+    if (deleteError) {
+      console.error(`❌ Error deleting card_tags:`, deleteError);
+      // Продолжаем несмотря на ошибку
+    }
+
+    // Собираем все новые связи
+    const allTagLinks: Array<{ card_id: number; tag_id: number }> = [];
 
     for (const card of cards) {
-      if (!card.id) continue;
+      if (!card.id || !card.tags || !Array.isArray(card.tags)) continue;
 
-      // Удаляем существующие связи для этой карточки
-      const { error: deleteError } = await this.supabase
-        .schema('kaiten')
-        .from('card_tags')
-        .delete()
-        .eq('card_id', card.id);
-
-      if (deleteError) {
-        console.error(`Error deleting card_tags for card ${card.id}:`, deleteError);
-        continue;
-      }
-
-      // Если есть теги, создаем новые связи
-      if (card.tags && Array.isArray(card.tags) && card.tags.length > 0) {
-        const tagLinks = card.tags.map((tag: any) => ({
-          card_id: card.id,
-          tag_id: tag.id,
-        }));
-
-        const { error: insertError } = await this.supabase
-          .schema('kaiten')
-          .from('card_tags')
-          .insert(tagLinks);
-
-        if (insertError) {
-          console.error(`Error inserting card_tags for card ${card.id}:`, insertError);
+      for (const tag of card.tags) {
+        if (tag.id) {
+          allTagLinks.push({
+            card_id: card.id,
+            tag_id: tag.id,
+          });
         }
       }
     }
+
+    if (allTagLinks.length === 0) {
+      console.log(`    ℹ️ No tags to insert`);
+      return;
+    }
+
+    console.log(`    ➕ Inserting ${allTagLinks.length} card-tag links...`);
+
+    // Батчим INSERT по 1000 записей (Supabase лимит)
+    const batchSize = 1000;
+    for (let i = 0; i < allTagLinks.length; i += batchSize) {
+      const batch = allTagLinks.slice(i, i + batchSize);
+
+      const { error: insertError } = await this.supabase
+        .schema('kaiten')
+        .from('card_tags')
+        .insert(batch);
+
+      if (insertError) {
+        console.error(`❌ Error inserting card_tags batch ${Math.floor(i/batchSize) + 1}:`, insertError);
+        // Продолжаем с остальными батчами
+      }
+    }
+
+    console.log(`    ✅ Card tags synced`);
   }
 
   /**
