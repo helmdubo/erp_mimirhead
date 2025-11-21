@@ -6,6 +6,7 @@ import { getSyncStatus } from "@/app/actions/sync-actions";
 import { SyncControls } from "./sync-controls";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60; // Hobby plan: 60s, Pro plan: 300s
 
 export default async function SyncAdminPage() {
   const syncData = await getSyncStatus();
