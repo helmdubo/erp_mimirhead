@@ -14,7 +14,6 @@ import type {
   KaitenTag,
   KaitenPropertyDefinition,
   PaginationParams,
-  PaginatedResponse,
 } from "./types";
 
 const KAITEN_URL = process.env.KAITEN_API_URL || "";
