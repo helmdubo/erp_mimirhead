@@ -241,7 +241,52 @@ export class SyncOrchestrator {
       stats.records_updated += batch.length;
     }
 
+    // Для карточек: синхронизируем M:N связи с тегами
+    if (entityType === 'cards') {
+      await this.syncCardTags(data);
+    }
+
     return stats;
+  }
+
+  /**
+   * Синхронизация M:N связей карточек с тегами
+   */
+  private async syncCardTags(cards: any[]): Promise<void> {
+    if (!this.supabase) return;
+
+    for (const card of cards) {
+      if (!card.id) continue;
+
+      // Удаляем существующие связи для этой карточки
+      const { error: deleteError } = await this.supabase
+        .schema('kaiten')
+        .from('card_tags')
+        .delete()
+        .eq('card_id', card.id);
+
+      if (deleteError) {
+        console.error(`Error deleting card_tags for card ${card.id}:`, deleteError);
+        continue;
+      }
+
+      // Если есть теги, создаем новые связи
+      if (card.tags && Array.isArray(card.tags) && card.tags.length > 0) {
+        const tagLinks = card.tags.map((tag: any) => ({
+          card_id: card.id,
+          tag_id: tag.id,
+        }));
+
+        const { error: insertError } = await this.supabase
+          .schema('kaiten')
+          .from('card_tags')
+          .insert(tagLinks);
+
+        if (insertError) {
+          console.error(`Error inserting card_tags for card ${card.id}:`, insertError);
+        }
+      }
+    }
   }
 
   /**

@@ -139,6 +139,9 @@ async function handleCardEvent(action: string, data: any, supabase: any) {
 
       if (upsertError) throw upsertError;
 
+      // Синхронизируем M:N связи с тегами
+      await syncCardTags(supabase, data);
+
       return { success: true, message: `Card ${data.id} ${action}d` };
 
     case "archive":
@@ -290,5 +293,30 @@ async function logWebhook(
     });
   } catch (error) {
     console.error("Failed to log webhook:", error);
+  }
+}
+
+/**
+ * Синхронизация M:N связей карточки с тегами
+ */
+async function syncCardTags(supabase: any, cardData: any) {
+  const schema = supabase.schema("kaiten");
+
+  try {
+    // Удаляем существующие связи
+    await schema.from("card_tags").delete().eq("card_id", cardData.id);
+
+    // Если есть теги, создаем новые связи
+    if (cardData.tags && Array.isArray(cardData.tags) && cardData.tags.length > 0) {
+      const tagLinks = cardData.tags.map((tag: any) => ({
+        card_id: cardData.id,
+        tag_id: tag.id,
+      }));
+
+      await schema.from("card_tags").insert(tagLinks);
+    }
+  } catch (error) {
+    console.error(`Failed to sync card_tags for card ${cardData.id}:`, error);
+    // Не бросаем ошибку, чтобы не блокировать основную синхронизацию
   }
 }
