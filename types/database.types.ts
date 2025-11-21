@@ -8,9 +8,107 @@ export type Json =
 
 export interface Database {
   public: {
-    Tables: Record<string, never>;
+    Tables: {
+      sync_logs: {
+        Row: {
+          completed_at: string | null;
+          duration_ms: number | null;
+          entity_type: string;
+          error_message: string | null;
+          id: number;
+          metadata: Json | null;
+          records_created: number | null;
+          records_processed: number | null;
+          records_skipped: number | null;
+          records_updated: number | null;
+          started_at: string;
+          status: string;
+          sync_type: string;
+        };
+        Insert: {
+          completed_at?: string | null;
+          duration_ms?: number | null;
+          entity_type: string;
+          error_message?: string | null;
+          id?: number;
+          metadata?: Json | null;
+          records_created?: number | null;
+          records_processed?: number | null;
+          records_skipped?: number | null;
+          records_updated?: number | null;
+          started_at?: string;
+          status: string;
+          sync_type: string;
+        };
+        Update: {
+          completed_at?: string | null;
+          duration_ms?: number | null;
+          entity_type?: string;
+          error_message?: string | null;
+          id?: number;
+          metadata?: Json | null;
+          records_created?: number | null;
+          records_processed?: number | null;
+          records_skipped?: number | null;
+          records_updated?: number | null;
+          started_at?: string;
+          status?: string;
+          sync_type?: string;
+        };
+        Relationships: [];
+      };
+      sync_metadata: {
+        Row: {
+          created_at: string;
+          entity_type: string;
+          error_message: string | null;
+          last_full_sync_at: string | null;
+          last_incremental_sync_at: string | null;
+          last_synced_id: number | null;
+          metadata: Json | null;
+          status: string | null;
+          total_records: number | null;
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          entity_type: string;
+          error_message?: string | null;
+          last_full_sync_at?: string | null;
+          last_incremental_sync_at?: string | null;
+          last_synced_id?: number | null;
+          metadata?: Json | null;
+          status?: string | null;
+          total_records?: number | null;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          entity_type?: string;
+          error_message?: string | null;
+          last_full_sync_at?: string | null;
+          last_incremental_sync_at?: string | null;
+          last_synced_id?: number | null;
+          metadata?: Json | null;
+          status?: string | null;
+          total_records?: number | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+    };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      list_tables: {
+        Args: {
+          schema_names?: string[];
+        };
+        Returns: {
+          schemaname: string;
+          tablename: string;
+        }[];
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };
@@ -68,7 +166,7 @@ export interface Database {
             columns: ["space_id"];
             referencedRelation: "spaces";
             referencedColumns: ["id"];
-          },
+          }
         ];
       };
       card_tags: {
@@ -96,7 +194,7 @@ export interface Database {
             columns: ["tag_id"];
             referencedRelation: "tags";
             referencedColumns: ["id"];
-          },
+          }
         ];
       };
       card_types: {
@@ -262,7 +360,7 @@ export interface Database {
             columns: ["type_id"];
             referencedRelation: "card_types";
             referencedColumns: ["id"];
-          },
+          }
         ];
       };
       columns: {
@@ -317,7 +415,7 @@ export interface Database {
             columns: ["board_id"];
             referencedRelation: "boards";
             referencedColumns: ["id"];
-          },
+          }
         ];
       };
       lanes: {
@@ -366,7 +464,7 @@ export interface Database {
             columns: ["board_id"];
             referencedRelation: "boards";
             referencedColumns: ["id"];
-          },
+          }
         ];
       };
       property_definitions: {
@@ -451,7 +549,7 @@ export interface Database {
             columns: ["owner_user_id"];
             referencedRelation: "users";
             referencedColumns: ["id"];
-          },
+          }
         ];
       };
       tags: {
