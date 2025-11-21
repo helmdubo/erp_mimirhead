@@ -104,8 +104,12 @@ async function fetchAllPaginated<T>(
   const allItems: T[] = [];
   let currentOffset = initialOffset;
   let hasMore = true;
+  let pageCount = 0;
+
+  console.log(`📄 Starting paginated fetch for ${endpoint} (limit: ${limit})`);
 
   while (hasMore) {
+    pageCount++;
     const params: Record<string, string | number> = {
       limit,
       offset: currentOffset,
@@ -122,9 +126,13 @@ async function fetchAllPaginated<T>(
       );
 
       // Kaiten может возвращать либо { items: [] }, либо прямой массив
-      const items = response.items || response.data || (Array.isArray(response) ? response : []);
+      const rawItems = (response as any).items || (response as any).data || response;
+      const items = Array.isArray(rawItems) ? rawItems : [];
+
+      console.log(`  📄 Page ${pageCount}: offset=${currentOffset}, received=${items.length} items`);
 
       if (items.length === 0) {
+        console.log(`  ✅ No more items, stopping pagination`);
         hasMore = false;
       } else {
         allItems.push(...items);
@@ -132,11 +140,14 @@ async function fetchAllPaginated<T>(
 
         // Если получили меньше чем limit, значит это последняя страница
         if (items.length < limit) {
+          console.log(`  ✅ Received ${items.length} < ${limit}, last page reached`);
           hasMore = false;
+        } else {
+          console.log(`  ➡️ Full page received, fetching next...`);
         }
       }
     } catch (error) {
-      console.error(`Error fetching ${endpoint} at offset ${currentOffset}:`, error);
+      console.error(`❌ Error fetching ${endpoint} at offset ${currentOffset}:`, error);
       throw error;
     }
 
@@ -146,6 +157,7 @@ async function fetchAllPaginated<T>(
     }
   }
 
+  console.log(`✅ Completed ${endpoint}: ${allItems.length} total items in ${pageCount} pages`);
   return allItems;
 }
 
