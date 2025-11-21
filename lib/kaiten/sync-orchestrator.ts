@@ -331,6 +331,76 @@ export class SyncOrchestrator {
           kaiten_updated_at: kaitenData.updated ? new Date(kaitenData.updated).toISOString() : null,
         };
 
+      case 'columns':
+        return {
+          ...base,
+          title: kaitenData.title,
+          board_id: kaitenData.board_id,
+          column_type: kaitenData.type, // В API поле называется type
+          sort_order: kaitenData.sort_order || null,
+          wip_limit: kaitenData.wip_limit || null,
+          archived: kaitenData.archived || false,
+          kaiten_created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
+          kaiten_updated_at: kaitenData.updated ? new Date(kaitenData.updated).toISOString() : null,
+        };
+
+      case 'lanes':
+        return {
+          ...base,
+          title: kaitenData.title,
+          board_id: kaitenData.board_id,
+          sort_order: kaitenData.sort_order || null,
+          archived: kaitenData.archived || false,
+          kaiten_created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
+          kaiten_updated_at: kaitenData.updated ? new Date(kaitenData.updated).toISOString() : null,
+        };
+
+      case 'users':
+        return {
+          ...base,
+          full_name: kaitenData.full_name,
+          email: kaitenData.email,
+          username: kaitenData.username,
+          timezone: kaitenData.timezone,
+          role: kaitenData.role,
+          is_admin: kaitenData.is_admin || false,
+          take_licence: kaitenData.take_licence,
+          apps_permissions: kaitenData.apps_permissions,
+          locked: kaitenData.locked,
+          last_request_date: kaitenData.last_request_date ? new Date(kaitenData.last_request_date).toISOString() : null,
+          kaiten_created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
+          kaiten_updated_at: kaitenData.updated ? new Date(kaitenData.updated).toISOString() : null,
+        };
+
+      case 'card_types':
+        return {
+          ...base,
+          name: kaitenData.name,
+          icon_url: kaitenData.icon_url,
+          kaiten_created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
+          kaiten_updated_at: kaitenData.updated ? new Date(kaitenData.updated).toISOString() : null,
+        };
+
+      case 'tags':
+        return {
+          ...base,
+          name: kaitenData.name,
+          color: kaitenData.color,
+          group_name: kaitenData.group_name,
+          kaiten_created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
+          kaiten_updated_at: kaitenData.updated ? new Date(kaitenData.updated).toISOString() : null,
+        };
+
+      case 'property_definitions':
+        return {
+          ...base,
+          name: kaitenData.name || 'Untitled Property', // Защита от null
+          field_type: kaitenData.type, // В API поле называется type
+          select_options: kaitenData.select_options || null,
+          kaiten_created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
+          kaiten_updated_at: kaitenData.updated ? new Date(kaitenData.updated).toISOString() : null,
+        };
+
       case 'cards':
         return {
           ...base,
@@ -358,8 +428,8 @@ export class SyncOrchestrator {
           kaiten_updated_at: kaitenData.updated ? new Date(kaitenData.updated).toISOString() : null,
         };
 
-      // TODO: Добавить трансформации для остальных сущностей
       default:
+        console.warn(`No transformer for entity type ${entityType}, using default base.`);
         return {
           ...base,
           kaiten_created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
