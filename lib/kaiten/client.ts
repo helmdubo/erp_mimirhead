@@ -275,7 +275,7 @@ export const kaitenClient = {
    * Типы карточек (Card Types)
    */
   async getCardTypes(): Promise<KaitenCardType[]> {
-    return fetchKaiten<KaitenCardType[]>("card_types");
+    return fetchKaiten<KaitenCardType[]>("card-types");
   },
 
   /**
@@ -289,7 +289,7 @@ export const kaitenClient = {
    * Определения свойств (Property Definitions)
    */
   async getPropertyDefinitions(): Promise<KaitenPropertyDefinition[]> {
-    return fetchKaiten<KaitenPropertyDefinition[]>("properties");
+    return fetchKaiten<KaitenPropertyDefinition[]>("company/custom-properties");
   },
 
   /**
