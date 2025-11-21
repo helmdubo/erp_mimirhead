@@ -23,24 +23,24 @@ export function SyncControls({ onSyncComplete }: SyncControlsProps) {
     setError(null);
     setResults(null);
 
-    try {
-      const result = await syncAllData();
+    // Запускаем синхронизацию но не ждем ответа (fire-and-forget)
+    syncAllData().catch(() => {
+      // Игнорируем timeout error - синхронизация все равно продолжится в фоне
+    });
 
-      if (result.status === "error") {
-        setError(result.error || result.message);
-        setStatus("Ошибка синхронизации");
-      } else {
-        setStatus(result.message);
-        setResults(result.results || []);
-      }
+    // Показываем пользователю информативное сообщение
+    setStatus("⏳ Синхронизация запущена в фоне...");
 
-      onSyncComplete?.();
-    } catch (err: any) {
-      setError(err.message);
-      setStatus("Критическая ошибка");
-    } finally {
-      setSyncing(false);
-    }
+    // Автоматически обновляем страницу через 90 секунд чтобы показать результаты
+    setTimeout(() => {
+      setStatus("🔄 Обновление страницы...");
+      window.location.reload();
+    }, 90000); // 90 секунд
+
+    // Показываем инструкцию
+    setTimeout(() => {
+      setStatus("⏳ Синхронизация в процессе. Страница автоматически обновится через ~90 секунд.");
+    }, 1000);
   };
 
   const handleIncrementalSync = async () => {
@@ -49,24 +49,24 @@ export function SyncControls({ onSyncComplete }: SyncControlsProps) {
     setError(null);
     setResults(null);
 
-    try {
-      const result = await syncIncrementalData();
+    // Запускаем синхронизацию но не ждем ответа (fire-and-forget)
+    syncIncrementalData().catch(() => {
+      // Игнорируем timeout error - синхронизация все равно продолжится в фоне
+    });
 
-      if (result.status === "error") {
-        setError(result.error || result.message);
-        setStatus("Ошибка обновления");
-      } else {
-        setStatus(result.message);
-        setResults(result.results || []);
-      }
+    // Показываем пользователю информативное сообщение
+    setStatus("⏳ Обновление запущено в фоне...");
 
-      onSyncComplete?.();
-    } catch (err: any) {
-      setError(err.message);
-      setStatus("Критическая ошибка");
-    } finally {
-      setSyncing(false);
-    }
+    // Автоматически обновляем страницу через 60 секунд
+    setTimeout(() => {
+      setStatus("🔄 Обновление страницы...");
+      window.location.reload();
+    }, 60000); // 60 секунд (инкрементальное обновление быстрее)
+
+    // Показываем инструкцию
+    setTimeout(() => {
+      setStatus("⏳ Обновление в процессе. Страница автоматически обновится через ~60 секунд.");
+    }, 1000);
   };
 
   const handleQuickSync = async (entities: string[]) => {
@@ -75,6 +75,27 @@ export function SyncControls({ onSyncComplete }: SyncControlsProps) {
     setError(null);
     setResults(null);
 
+    // Если синхронизируем карточки - используем fire-and-forget (могут быть тысячи)
+    if (entities.includes("cards")) {
+      syncSpecificEntities(entities).catch(() => {
+        // Игнорируем timeout error
+      });
+
+      setStatus("⏳ Синхронизация карточек запущена в фоне...");
+
+      setTimeout(() => {
+        setStatus("🔄 Обновление страницы...");
+        window.location.reload();
+      }, 60000);
+
+      setTimeout(() => {
+        setStatus("⏳ Синхронизация карточек в процессе. Страница автоматически обновится через ~60 секунд.");
+      }, 1000);
+
+      return;
+    }
+
+    // Для других сущностей - ждем ответа (они быстрые)
     try {
       const result = await syncSpecificEntities(entities);
 
@@ -155,11 +176,21 @@ export function SyncControls({ onSyncComplete }: SyncControlsProps) {
               : "bg-green-50 text-green-800 border border-green-200"
           }`}
         >
-          <div className="flex items-center gap-2">
-            {syncing && (
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent"></div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {syncing && (
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent"></div>
+              )}
+              <p className="font-medium">{status}</p>
+            </div>
+            {syncing && status.includes("автоматически обновится") && (
+              <button
+                onClick={() => window.location.reload()}
+                className="rounded bg-white/80 px-3 py-1 text-sm font-medium hover:bg-white"
+              >
+                🔄 Обновить сейчас
+              </button>
             )}
-            <p className="font-medium">{status}</p>
           </div>
           {error && (
             <p className="mt-2 text-sm opacity-80">Ошибка: {error}</p>
