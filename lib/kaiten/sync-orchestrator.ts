@@ -253,12 +253,17 @@ export class SyncOrchestrator {
       stats.records_updated += batch.length;
     }
 
-    // Для карточек: синхронизируем M:N связи с тегами
+    // Для карточек: синхронизируем M:N связи с тегами и участниками
     if (entityType === 'cards') {
       console.log(`  🏷️ Syncing card tags for ${data.length} cards...`);
       const tagsStart = Date.now();
       await this.syncCardTags(data);
       console.log(`  ✅ Tags sync complete: ${Date.now() - tagsStart}ms`);
+
+      console.log(`  👥 Syncing card members for ${data.length} cards...`);
+      const membersStart = Date.now();
+      await this.syncCardMembers(data);
+      console.log(`  ✅ Members sync complete: ${Date.now() - membersStart}ms`);
     }
 
     const totalTime = Date.now() - startTime;
@@ -333,6 +338,74 @@ export class SyncOrchestrator {
     }
 
     console.log(`    ✅ Card tags synced`);
+  }
+
+  /**
+   * Синхронизация M:N связей карточек с участниками (ОПТИМИЗИРОВАННАЯ)
+   */
+  private async syncCardMembers(cards: any[]): Promise<void> {
+    if (!this.supabase) return;
+    if (cards.length === 0) return;
+
+    // Собираем все card_id для массового удаления
+    const cardIds = cards.map(c => c.id).filter(Boolean);
+
+    if (cardIds.length === 0) return;
+
+    console.log(`    🗑️ Deleting old card_members for ${cardIds.length} cards...`);
+
+    // Одно массовое удаление вместо N запросов
+    const { error: deleteError } = await this.supabase
+      .schema('kaiten')
+      .from('card_members')
+      .delete()
+      .in('card_id', cardIds);
+
+    if (deleteError) {
+      console.error(`❌ Error deleting card_members:`, deleteError);
+      // Продолжаем несмотря на ошибку
+    }
+
+    // Собираем все новые связи
+    const allMemberLinks: Array<{ card_id: number; user_id: number }> = [];
+
+    for (const card of cards) {
+      if (!card.id || !card.members || !Array.isArray(card.members)) continue;
+
+      for (const member of card.members) {
+        if (member.id) {
+          allMemberLinks.push({
+            card_id: card.id,
+            user_id: member.id,
+          });
+        }
+      }
+    }
+
+    if (allMemberLinks.length === 0) {
+      console.log(`    ℹ️ No members to insert`);
+      return;
+    }
+
+    console.log(`    ➕ Inserting ${allMemberLinks.length} card-member links...`);
+
+    // Батчим INSERT по 1000 записей (Supabase лимит)
+    const batchSize = 1000;
+    for (let i = 0; i < allMemberLinks.length; i += batchSize) {
+      const batch = allMemberLinks.slice(i, i + batchSize);
+
+      const { error: insertError } = await this.supabase
+        .schema('kaiten')
+        .from('card_members')
+        .insert(batch);
+
+      if (insertError) {
+        console.error(`❌ Error inserting card_members batch ${Math.floor(i/batchSize) + 1}:`, insertError);
+        // Продолжаем с остальными батчами
+      }
+    }
+
+    console.log(`    ✅ Card members synced`);
   }
 
   /**
@@ -448,11 +521,17 @@ export class SyncOrchestrator {
         };
 
       case 'cards':
+        // Extract space_id from nested board.spaces if null in root
+        let extractedSpaceId = kaitenData.space_id;
+        if (!extractedSpaceId && kaitenData.board?.spaces?.[0]?.id) {
+          extractedSpaceId = kaitenData.board.spaces[0].id;
+        }
+
         return {
           ...base,
           title: kaitenData.title,
           description: kaitenData.description || null,
-          space_id: kaitenData.space_id || null,
+          space_id: extractedSpaceId || null,
           board_id: kaitenData.board_id,
           column_id: kaitenData.column_id,
           lane_id: kaitenData.lane_id || null,
