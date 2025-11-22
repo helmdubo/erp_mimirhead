@@ -169,6 +169,21 @@ export interface Database {
           }
         ];
       };
+      card_members: {
+        Row: {
+          card_id: number;
+          user_id: number;
+        };
+        Insert: {
+          card_id: number;
+          user_id: number;
+        };
+        Update: {
+          card_id?: number;
+          user_id?: number;
+        };
+        Relationships: [];
+      };
       card_tags: {
         Row: {
           card_id: number;
@@ -207,6 +222,7 @@ export interface Database {
           raw_payload: Json;
           synced_at: string;
           uid: string | null;
+          payload_hash: string | null;
         };
         Insert: {
           id: number;
@@ -217,6 +233,7 @@ export interface Database {
           raw_payload?: Json;
           synced_at?: string;
           uid?: string | null;
+          payload_hash?: string | null;
         };
         Update: {
           id?: number;
@@ -227,6 +244,7 @@ export interface Database {
           raw_payload?: Json;
           synced_at?: string;
           uid?: string | null;
+          payload_hash?: string | null;
         };
         Relationships: [];
       };
@@ -259,6 +277,10 @@ export interface Database {
           title: string;
           type_id: number | null;
           uid: string | null;
+          estimate_workload: number | null;
+          parents_ids: number[] | null;
+          children_ids: number[] | null;
+          members_ids: number[] | null;
         };
         Insert: {
           archived?: boolean | null;
@@ -288,6 +310,10 @@ export interface Database {
           title: string;
           type_id?: number | null;
           uid?: string | null;
+          estimate_workload?: number | null;
+          parents_ids?: number[] | null;
+          children_ids?: number[] | null;
+          members_ids?: number[] | null;
         };
         Update: {
           archived?: boolean | null;
@@ -317,6 +343,10 @@ export interface Database {
           title?: string;
           type_id?: number | null;
           uid?: string | null;
+          estimate_workload?: number | null;
+          parents_ids?: number[] | null;
+          children_ids?: number[] | null;
+          members_ids?: number[] | null;
         };
         Relationships: [
           {
@@ -472,31 +502,37 @@ export interface Database {
           field_type: string | null;
           id: number;
           kaiten_created_at: string | null;
+          kaiten_updated_at: string | null;
           name: string;
           raw_payload: Json;
           select_options: Json | null;
           synced_at: string;
           uid: string | null;
+          payload_hash: string | null;
         };
         Insert: {
           field_type?: string | null;
           id: number;
           kaiten_created_at?: string | null;
+          kaiten_updated_at?: string | null;
           name: string;
           raw_payload?: Json;
           select_options?: Json | null;
           synced_at?: string;
           uid?: string | null;
+          payload_hash?: string | null;
         };
         Update: {
           field_type?: string | null;
           id?: number;
           kaiten_created_at?: string | null;
+          kaiten_updated_at?: string | null;
           name?: string;
           raw_payload?: Json;
           select_options?: Json | null;
           synced_at?: string;
           uid?: string | null;
+          payload_hash?: string | null;
         };
         Relationships: [];
       };
@@ -561,6 +597,9 @@ export interface Database {
           raw_payload: Json;
           synced_at: string;
           uid: string | null;
+          kaiten_created_at: string | null;
+          kaiten_updated_at: string | null;
+          payload_hash: string | null;
         };
         Insert: {
           color?: string | null;
@@ -570,6 +609,9 @@ export interface Database {
           raw_payload?: Json;
           synced_at?: string;
           uid?: string | null;
+          kaiten_created_at?: string | null;
+          kaiten_updated_at?: string | null;
+          payload_hash?: string | null;
         };
         Update: {
           color?: string | null;
@@ -579,6 +621,9 @@ export interface Database {
           raw_payload?: Json;
           synced_at?: string;
           uid?: string | null;
+          kaiten_created_at?: string | null;
+          kaiten_updated_at?: string | null;
+          payload_hash?: string | null;
         };
         Relationships: [];
       };
