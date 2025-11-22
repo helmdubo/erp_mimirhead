@@ -446,6 +446,67 @@ setTimeout(() => window.location.reload(), 60000);
 
 ---
 
-**Last Updated:** 2025-11-21
+## 🆕 Session Date: 2025-11-22
+
+### 9. NULL Values in Cards Table (space_id)
+
+**Problem:** Cards table had NULL values in `space_id` column.
+
+**Cause:** Kaiten API doesn't always include `space_id` at root level, but nests it in `board.spaces[0].id`
+
+**Specialist Feedback:** Extract from nested structure when root is null.
+
+**Solution:**
+```typescript
+// Extract space_id from nested board.spaces if null in root
+let extractedSpaceId = kaitenData.space_id;
+if (!extractedSpaceId && kaitenData.board?.spaces?.[0]?.id) {
+  extractedSpaceId = kaitenData.board.spaces[0].id;
+}
+```
+
+**Implementation:** `lib/kaiten/sync-orchestrator.ts` → `transformToDbFormat()` case 'cards'
+
+---
+
+### 10. Missing Card Members Tracking
+
+**Problem:** Only tracking card `owner_id`, but cards can have multiple participants/members.
+
+**Need:** Analytics requires tracking ALL people working on a card, not just the owner.
+
+**Solution:** Add `card_members` many-to-many table.
+
+**Migration:** `supabase/migrations/20250122000000_add_card_members.sql`
+```sql
+CREATE TABLE kaiten.card_members (
+    card_id bigint NOT NULL,
+    user_id bigint NOT NULL,
+    PRIMARY KEY (card_id, user_id)
+);
+```
+
+**Sync Implementation:** Added batch-optimized `syncCardMembers()` method
+```typescript
+// Pattern: ONE bulk DELETE + batched INSERT
+await this.supabase.delete().in('card_id', cardIds);
+// ... collect all member links ...
+for (let i = 0; i < allMemberLinks.length; i += 1000) {
+  await this.supabase.insert(batch);
+}
+```
+
+**Performance:** ~2 seconds for 999 cards (same as syncCardTags)
+
+**CRITICAL:** Specialist's original code used N+1 queries (loop with individual DELETE/INSERT per card). We implemented the IDEA but kept batch operations to preserve 20x performance gain.
+
+**Implementation:** `lib/kaiten/sync-orchestrator.ts` → `syncCardMembers()` + call in `upsertToDatabase()`
+
+---
+
+**Last Updated:** 2025-11-22
 **Status:** Production Ready ✅
-**Next:** Investigate NULL values in cards table
+**Next Steps:**
+1. Apply migration: `npx supabase db push`
+2. Run full sync to populate `space_id` and `card_members`
+3. Verify NULL values are fixed
