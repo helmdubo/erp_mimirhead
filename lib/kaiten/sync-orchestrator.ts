@@ -267,7 +267,7 @@ export class SyncOrchestrator {
     }
 
     const totalTime = Date.now() - startTime;
-    console.log(`✅ Upsert complete for ${entityType}: ${stats.records_processed} rows in ${totalTime}ms (${(totalTime/1000).toFixed(1)}s)`);
+    console.log(`✅ Upsert complete for ${entityType}: ${stats.records_processed} rows in ${totalTime}ms (${(totalTime / 1000).toFixed(1)}s)`);
 
     return stats;
   }
@@ -332,7 +332,7 @@ export class SyncOrchestrator {
         .insert(batch);
 
       if (insertError) {
-        console.error(`❌ Error inserting card_tags batch ${Math.floor(i/batchSize) + 1}:`, insertError);
+        console.error(`❌ Error inserting card_tags batch ${Math.floor(i / batchSize) + 1}:`, insertError);
         // Продолжаем с остальными батчами
       }
     }
@@ -400,7 +400,7 @@ export class SyncOrchestrator {
         .insert(batch);
 
       if (insertError) {
-        console.error(`❌ Error inserting card_members batch ${Math.floor(i/batchSize) + 1}:`, insertError);
+        console.error(`❌ Error inserting card_members batch ${Math.floor(i / batchSize) + 1}:`, insertError);
         // Продолжаем с остальными батчами
       }
     }
@@ -521,21 +521,25 @@ export class SyncOrchestrator {
         };
 
       case 'cards':
-        // Extract space_id from nested board.spaces if null in root
-        let extractedSpaceId = kaitenData.space_id;
-        if (!extractedSpaceId && kaitenData.board?.spaces?.[0]?.id) {
-          extractedSpaceId = kaitenData.board.spaces[0].id;
-        }
+        // Логику extractedSpaceId можно убрать или оставить как fallback, 
+        // теперь основную работу делает SQL Trigger.
+
+        // Извлекаем ID участников в простой массив для колонки members_ids
+        const memberIds = kaitenData.members && Array.isArray(kaitenData.members)
+          ? kaitenData.members.map((m: any) => m.id)
+          : [];
 
         return {
           ...base,
           title: kaitenData.title,
           description: kaitenData.description || null,
-          space_id: extractedSpaceId || null,
+          // SQL Trigger сам заполнит space_id, если мы передадим null, но board_id будет заполнен
+          space_id: kaitenData.space_id || null,
           board_id: kaitenData.board_id,
           column_id: kaitenData.column_id,
           lane_id: kaitenData.lane_id || null,
           type_id: kaitenData.type_id || null,
+          // owner_id берем либо из поля owner_id, либо из первого участника (как было)
           owner_id: kaitenData.owner_id || kaitenData.members?.[0]?.id || null,
           creator_id: kaitenData.creator_id || null,
           state: kaitenData.state || null,
@@ -545,6 +549,14 @@ export class SyncOrchestrator {
           due_date: kaitenData.due_date ? new Date(kaitenData.due_date).toISOString() : null,
           time_spent_sum: kaitenData.time_spent_sum || 0,
           time_blocked_sum: kaitenData.time_blocked_sum || 0,
+
+          // --- НОВЫЕ ПОЛЯ ---
+          estimate_workload: kaitenData.estimate_workload || 0,
+          parents_ids: kaitenData.parents_ids || [],
+          children_ids: kaitenData.children_ids || [],
+          members_ids: memberIds,
+          // -------------------
+
           started_at: kaitenData.started_at ? new Date(kaitenData.started_at).toISOString() : null,
           completed_at: kaitenData.completed_at ? new Date(kaitenData.completed_at).toISOString() : null,
           properties: kaitenData.properties || {},

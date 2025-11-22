@@ -26,7 +26,13 @@ export interface KaitenCard {
   completed_at?: string;
   properties?: Record<string, any>;
   tags?: Array<{ id: number; name: string; color?: string }>;
-  members?: Array<{ id: number }>;
+  
+  // Добавляем новые поля:
+  estimate_workload?: number;
+  parents_ids?: number[];
+  children_ids?: number[];
+  members?: Array<{ id: number; full_name?: string; username?: string }>; // Уточняем тип members
+
   created?: string;
   updated?: string;
   [key: string]: any;
