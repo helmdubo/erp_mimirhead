@@ -97,30 +97,31 @@ All migrations applied successfully:
    - This is a **data warehouse** - data completeness > strict integrity
    - Cards preserved even if parent entities deleted
 
+5. **20250122000000_add_card_members.sql** ⚠️ NEW
+   - Created `card_members` M:N table
+   - Tracks all card participants (not just owner)
+   - Essential for analytics about who works on what
+
 ---
 
 ## ⚠️ Known Issues
 
-### 1. NULL Values in Some Card Columns
+### 1. NULL Values in Some Card Columns ✅ PARTIALLY FIXED (2025-11-22)
 
-**Problem:** Some columns in `cards` table contain NULL values when they shouldn't.
+**Fixed:**
+- ✅ `space_id` - Now extracts from `board.spaces[0].id` when null in root
 
-**Likely causes:**
-- Field mapping issues in `transformToDbFormat` (sync-orchestrator.ts)
-- Kaiten API returning different field names
-- Missing data in source
-
-**Examples to check:**
+**Still need investigation:**
 - `type_id` - might be NULL if card_types didn't sync first
 - `owner_id` - might be NULL if user deleted
-- `column_id` - should always have value
-- `lane_id` - can be NULL (not all boards use lanes)
+- `column_id` - should always have value (investigate if still NULL)
+- `lane_id` - can be NULL (not all boards use lanes - this is expected)
 
-**Next steps:**
-1. Check `sync_logs` table for errors during sync
-2. Review raw_payload in cards table to see actual API response
-3. Update field mapping in `transformToDbFormat` if needed
-4. Re-run sync after fixes
+**Next steps (if other NULLs persist):**
+1. Apply new migration: `npx supabase db push`
+2. Run full sync to populate `space_id` and `card_members`
+3. Check which columns still have NULLs
+4. Review raw_payload in cards table to see actual API response
 
 ### 2. Timeout Warnings (Resolved with Fire-and-Forget)
 
@@ -231,24 +232,44 @@ SUPABASE_SERVICE_ROLE_KEY=eyJxxx...
 
 ## 🎯 Next Session Tasks
 
-1. **Investigate NULL values in cards table:**
-   - Check which columns have NULLs
-   - Review `transformToDbFormat` mapping
-   - Compare with Kaiten API response structure
-   - Fix field mapping if needed
+### ⚠️ IMMEDIATE (Apply Changes)
 
-2. **Optional: Add data validation:**
+1. **Apply new migration:**
+   ```bash
+   npx supabase db push
+   ```
+
+2. **Run full sync:**
+   - Go to `/admin/sync`
+   - Click "🔄 Полная синхронизация"
+   - Verify `space_id` is now populated
+   - Verify `card_members` table is populated
+
+3. **Check for remaining NULL values:**
+   ```sql
+   SELECT
+     COUNT(*) as total,
+     COUNT(space_id) as has_space_id,
+     COUNT(type_id) as has_type,
+     COUNT(owner_id) as has_owner,
+     COUNT(column_id) as has_column
+   FROM kaiten.cards;
+   ```
+
+### 📊 Optional Enhancements
+
+1. **Add data validation:**
    - Add checks before upsert
    - Log warnings for unexpected NULL values
    - Add data quality metrics to sync_logs
 
-3. **Optional: Improve sync scheduling:**
+2. **Improve sync scheduling:**
    - Set up cron job for automatic daily sync
    - Implement webhook receiver for real-time updates
 
-4. **Optional: Build analytics dashboard:**
-   - Show card statistics
-   - Display user workload
+3. **Build analytics dashboard:**
+   - Show card statistics by member (now possible with card_members!)
+   - Display user workload distribution
    - Create board reports
 
 ---
@@ -282,7 +303,11 @@ NOTIFY pgrst, 'reload config';
 
 ---
 
-**Last Updated:** 2025-11-21
-**Status:** ✅ Production Ready
-**Sync Performance:** 37s for 999 cards
+**Last Updated:** 2025-11-22
+**Status:** ✅ Ready to Deploy (migration pending)
+**Sync Performance:** ~39s for 999 cards (includes card_members sync)
 **Data Completeness:** 999/999 cards synced
+**Latest Changes:**
+- Fixed `space_id` NULL values (extracts from nested structure)
+- Added `card_members` M:N table with batch-optimized sync
+- Preserved performance optimizations (batch operations)

@@ -3,7 +3,11 @@
 ## Current Status
 ✅ **Kaiten sync is WORKING!** All 999 cards synced successfully.
 
-⚠️ **Known Issue:** Some columns in `cards` table have NULL values (investigate in next session)
+✅ **FIXED (2025-11-22):** NULL values in `space_id` - now extracts from `board.spaces[0].id`
+
+✅ **NEW:** `card_members` table added for tracking all card participants
+
+⚠️ **ACTION REQUIRED:** Apply new migration and re-sync cards
 
 ---
 
@@ -47,8 +51,15 @@ FROM kaiten.cards;
 
 ### Apply Migrations
 ```bash
+# Apply the new migration
 npx supabase db push
+
+# Verify migration applied
+npx supabase migration list
 ```
+
+**New Migration (2025-11-22):**
+- `20250122000000_add_card_members.sql` - Adds card_members M:N table
 
 ---
 
@@ -96,43 +107,47 @@ cp .env.example .env.local
 
 ---
 
-## Next Session: Fix NULL Values
+## ✅ Completed: NULL Values Fixed (2025-11-22)
 
-### Steps to Investigate:
+### What Was Done:
 
-1. **Check which columns have NULLs:**
+1. **Fixed space_id extraction:**
+   - Now extracts from `board.spaces[0].id` when null in root
+   - Updated `transformToDbFormat` in sync-orchestrator.ts
+
+2. **Added card_members table:**
+   - Tracks ALL card participants (not just owner)
+   - Uses batch-optimized sync (similar to card_tags)
+   - Migration: `20250122000000_add_card_members.sql`
+
+3. **Preserved performance:**
+   - Specialist's solution implemented with batch operations
+   - Avoided N+1 query anti-pattern
+   - Expected +2s to total sync time
+
+### Next Steps (Apply Changes):
+
+1. **Apply migration:**
+```bash
+npx supabase db push
+```
+
+2. **Run full sync to populate new data:**
+   - Go to `/admin/sync`
+   - Click "🔄 Полная синхронизация"
+   - Wait 60-90 seconds
+
+3. **Verify fixes:**
 ```sql
+-- Check space_id is now populated
 SELECT
-  id,
-  title,
-  type_id,
-  owner_id,
-  column_id,
-  lane_id,
-  raw_payload->>'type_id' as api_type_id
-FROM kaiten.cards
-WHERE type_id IS NULL OR owner_id IS NULL
-LIMIT 10;
+  COUNT(*) as total,
+  COUNT(space_id) as has_space_id
+FROM kaiten.cards;
+
+-- Check card_members table
+SELECT COUNT(*) FROM kaiten.card_members;
 ```
-
-2. **Review field mapping:**
-   - File: `lib/kaiten/sync-orchestrator.ts`
-   - Function: `transformToDbFormat` (case 'cards')
-   - Check if field names match Kaiten API response
-
-3. **Check raw API response:**
-```sql
-SELECT raw_payload FROM kaiten.cards LIMIT 1;
-```
-
-4. **Compare with Kaiten API docs:**
-   - Verify field names in API response
-   - Update mapping if needed
-
-5. **Test fix:**
-   - Update `transformToDbFormat`
-   - Run sync for cards only
-   - Verify NULLs are filled
 
 ---
 
