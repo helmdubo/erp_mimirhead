@@ -7,7 +7,7 @@
 import { getServiceSupabaseClient } from "@/lib/supabase/server";
 import { kaitenClient, kaitenUtils } from "./client";
 
-type EntityType = 'spaces' | 'boards' | 'columns' | 'lanes' | 'users' | 'card_types' | 'property_definitions' | 'tags' | 'cards';
+type EntityType = 'spaces' | 'boards' | 'columns' | 'lanes' | 'users' | 'card_types' | 'property_definitions' | 'tags' | 'cards' | 'time_logs';
 
 const DEPENDENCY_GRAPH: Record<EntityType, EntityType[]> = {
   spaces: [],
@@ -19,6 +19,7 @@ const DEPENDENCY_GRAPH: Record<EntityType, EntityType[]> = {
   columns: ['boards'],
   lanes: ['boards'],
   cards: ['boards', 'columns', 'lanes', 'users', 'card_types'], // Убрали tags из зависимостей
+  time_logs: ['cards', 'users'],
 };
 
 interface SyncResult {
@@ -137,6 +138,8 @@ export class SyncOrchestrator {
       case 'card_types': return kaitenClient.getCardTypes();
       case 'property_definitions': return kaitenClient.getPropertyDefinitions();
       case 'tags': return kaitenClient.getTags();
+      case 'time_logs':
+        return kaitenClient.getTimeLogs(params);
       case 'cards': return kaitenClient.getCards(params);
       default: throw new Error(`Unknown entity type: ${entityType}`);
     }
@@ -261,6 +264,21 @@ export class SyncOrchestrator {
       case 'card_types': return { ...base, name: kaitenData.name, icon_url: kaitenData.icon_url, kaiten_created_at: kaitenData.created, kaiten_updated_at: kaitenData.updated };
       case 'tags': return { ...base, name: kaitenData.name, color: kaitenData.color, group_name: kaitenData.group_name, kaiten_created_at: kaitenData.created, kaiten_updated_at: kaitenData.updated };
       case 'property_definitions': return { ...base, name: kaitenData.name || 'Untitled', field_type: kaitenData.type, select_options: kaitenData.select_options, kaiten_created_at: kaitenData.created, kaiten_updated_at: kaitenData.updated };
+      case 'time_logs':
+        return {
+          ...base,
+          // Kaiten может возвращать card_id, user_id или вложенные объекты card: {id: ...}
+          card_id: kaitenData.card_id || kaitenData.card?.id,
+          user_id: kaitenData.user_id || kaitenData.author?.id || kaitenData.user?.id, 
+          
+          time_spent_minutes: kaitenData.time_spent || 0,
+          date: kaitenData.date, // Обычно строка "YYYY-MM-DD"
+          comment: kaitenData.comment,
+          role_id: kaitenData.role_id,
+          
+          created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
+          updated_at: kaitenData.updated ? new Date(kaitenData.updated).toISOString() : null,
+        };
 
       default:
         console.warn(`No transformer for entity type ${entityType}`);
