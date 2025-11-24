@@ -120,10 +120,22 @@ async function fetchAllPaginated<T>(
     }
 
     try {
-      const response = await fetchKaiten<{ items?: T[]; data?: T[] }>(
+      const response = await fetchKaiten<{ items?: T[]; data?: T[]; time_logs?: T[] }>(
         endpoint,
         params
       );
+
+      // Kaiten может возвращать:
+      // 1. Массив объектов (напрямую)
+      // 2. { items: [...] } - стандартная пагинация
+      // 3. { time_logs: [...] } - специфика эндпоинта логов
+      const rawItems = 
+        (response as any).items || 
+        (response as any).data || 
+        (response as any).time_logs || // <--- ДОБАВЛЕНО ЭТО ПОЛЕ
+        response;
+        
+      const items = Array.isArray(rawItems) ? rawItems : [];
 
       // Kaiten может возвращать либо { items: [] }, либо прямой массив
       const rawItems = (response as any).items || (response as any).data || response;
