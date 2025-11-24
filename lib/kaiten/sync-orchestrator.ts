@@ -219,24 +219,16 @@ export class SyncOrchestrator {
     switch (entityType) {
       // 4. Добавляем маппинг для time_logs
       case 'time_logs':
-        return {
-          ...base,
-          // Kaiten отдает ID прямо в корне объекта, используем их
-          card_id: kaitenData.card_id, 
-          user_id: kaitenData.user_id,
-          
-          // В JSON поле называется 'time_spent' (в минутах)
-          time_spent_minutes: kaitenData.time_spent || 0,
-          
-          // 🔥 ВАЖНО: В JSON поле даты списания называется 'for_date', а не 'date'
-          date: kaitenData.for_date, 
-          
-          comment: kaitenData.comment || null,
-          role_id: kaitenData.role_id || null,
-          
-          created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
-          updated_at: kaitenData.updated ? new Date(kaitenData.updated).toISOString() : null,
-        };
+        // Kaiten требует диапазон.
+        // ИСПРАВЛЕНО: Используем формат YYYY-MM-DD, иначе API может вернуть пустой список
+        const now = new Date().toISOString().split('T')[0]; // "2025-01-24"
+        const from = "2000-01-01"; 
+        
+        return kaitenClient.getTimeLogs({ 
+            ...params, 
+            from: from, 
+            to: now 
+        });
 
       // ... Остальные кейсы без изменений
       case 'cards':
