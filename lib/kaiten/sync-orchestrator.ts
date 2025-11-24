@@ -10,7 +10,6 @@ import { kaitenClient, kaitenUtils } from "./client";
 type EntityType = 'spaces' | 'boards' | 'columns' | 'lanes' | 'users' | 'card_types' | 'property_definitions' | 'tags' | 'cards' | 'time_logs';
 
 // 2. Добавляем time_logs в граф зависимостей
-// Он зависит от users и cards, значит будет загружаться ПОСЛЕ них
 const DEPENDENCY_GRAPH: Record<EntityType, EntityType[]> = {
   spaces: [],
   users: [],
@@ -68,7 +67,6 @@ export class SyncOrchestrator {
         const result = await this.syncEntity(entityType, incremental);
         results.push(result);
         
-        // Если упали критические сущности, дальше нет смысла идти
         if (!result.success && ['spaces', 'boards', 'users', 'cards'].includes(entityType)) {
             console.error(`⛔ Critical entity ${entityType} failed. Stopping sync.`);
             break;
@@ -131,9 +129,7 @@ export class SyncOrchestrator {
     }
   }
 
-/**
-   * Получение данных из Kaiten по типу сущности
-   */
+  // 🔥 ИСПРАВЛЕНО: Аргумент называется params (без подчеркивания)
   private async fetchFromKaiten(entityType: EntityType, params?: any): Promise<any[]> {
     switch (entityType) {
       case 'spaces': return kaitenClient.getSpaces(params);
@@ -146,17 +142,10 @@ export class SyncOrchestrator {
       case 'tags': return kaitenClient.getTags();
       case 'cards': return kaitenClient.getCards(params);
       
-      // ИСПРАВЛЕНО: Передаем обязательные from/to
+      // ИСПРАВЛЕНО: Формат дат и использование params
       case 'time_logs':
-        // Kaiten требует диапазон. 
-        // Берем с запасом с 2000 года по текущий момент.
-        const now = new Date().toISOString();
-        const from = "2000-01-01T00:00:00.000Z"; 
-        
-        // Если это инкрементальное обновление, можно было бы поставить from = params.updated_since,
-        // но API time-logs часто фильтрует по "дате списания", а не "дате обновления записи".
-        // Поэтому безопаснее всегда брать широкий диапазон, а обновленные записи
-        // отфильтруются автоматически на этапе upsert (так как мы передаем updated_since тоже).
+        const now = new Date().toISOString().split('T')[0]; // "2025-01-24"
+        const from = "2000-01-01"; 
         
         return kaitenClient.getTimeLogs({ 
             ...params, 
@@ -190,7 +179,7 @@ export class SyncOrchestrator {
       data.map(async (item) => await this.transformToDbFormat(entityType, item))
     );
 
-    // Batch upsert (по 1000 записей для скорости)
+    // Batch upsert
     const batchSize = 1000;
     for (let i = 0; i < dbRows.length; i += batchSize) {
       const batch = dbRows.slice(i, i + batchSize);
@@ -219,18 +208,26 @@ export class SyncOrchestrator {
     switch (entityType) {
       // 4. Добавляем маппинг для time_logs
       case 'time_logs':
-        // Kaiten требует диапазон.
-        // ИСПРАВЛЕНО: Используем формат YYYY-MM-DD, иначе API может вернуть пустой список
-        const now = new Date().toISOString().split('T')[0]; // "2025-01-24"
-        const from = "2000-01-01"; 
-        
-        return kaitenClient.getTimeLogs({ 
-            ...params, 
-            from: from, 
-            to: now 
-        });
+        return {
+          ...base,
+          // Kaiten отдает ID прямо в корне объекта, используем их
+          card_id: kaitenData.card_id, 
+          user_id: kaitenData.user_id,
+          
+          // В JSON поле называется 'time_spent' (в минутах)
+          time_spent_minutes: kaitenData.time_spent || 0,
+          
+          // 🔥 ВАЖНО: В JSON поле даты списания называется 'for_date'
+          date: kaitenData.for_date, 
+          
+          comment: kaitenData.comment || null,
+          role_id: kaitenData.role_id || null,
+          
+          created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
+          updated_at: kaitenData.updated ? new Date(kaitenData.updated).toISOString() : null,
+        };
 
-      // ... Остальные кейсы без изменений
+      // ... Остальные кейсы
       case 'cards':
         let extractedSpaceId = kaitenData.space_id;
         if (!extractedSpaceId && kaitenData.board?.spaces?.length > 0) {
