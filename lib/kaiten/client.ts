@@ -305,7 +305,7 @@ export const kaitenClient = {
    * Пользователи (Users)
    */
   async getUsers(params?: PaginationParams): Promise<KaitenUser[]> {
-    return fetchAllPaginated<KaitenUser>("users", params);
+    return fetchAllPaginated<KaitenUser>("company/users", params);
   },
 
   async getUser(id: number): Promise<KaitenUser> {
