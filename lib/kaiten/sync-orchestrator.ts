@@ -221,14 +221,18 @@ export class SyncOrchestrator {
       case 'time_logs':
         return {
           ...base,
-          // Извлекаем ID, учитывая, что Kaiten может прислать объект или просто ID
-          card_id: kaitenData.card ? kaitenData.card.id : kaitenData.card_id,
-          user_id: kaitenData.author ? kaitenData.author.id : (kaitenData.user ? kaitenData.user.id : kaitenData.user_id),
+          // Kaiten отдает ID прямо в корне объекта, используем их
+          card_id: kaitenData.card_id, 
+          user_id: kaitenData.user_id,
           
+          // В JSON поле называется 'time_spent' (в минутах)
           time_spent_minutes: kaitenData.time_spent || 0,
-          date: kaitenData.date, // "YYYY-MM-DD"
+          
+          // 🔥 ВАЖНО: В JSON поле даты списания называется 'for_date', а не 'date'
+          date: kaitenData.for_date, 
+          
           comment: kaitenData.comment || null,
-          role_id: kaitenData.role ? kaitenData.role.id : kaitenData.role_id,
+          role_id: kaitenData.role_id || null,
           
           created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
           updated_at: kaitenData.updated ? new Date(kaitenData.updated).toISOString() : null,
