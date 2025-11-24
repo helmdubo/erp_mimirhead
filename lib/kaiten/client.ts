@@ -325,7 +325,16 @@ export const kaitenClient = {
   async getTags(): Promise<KaitenTag[]> {
     return fetchKaiten<KaitenTag[]>("tags");
   },
-
+  
+  /**
+   * Логи времени (Time Logs)
+   * Можно фильтровать по updated_since, чтобы забирать только новые списания.
+   */
+  async getTimeLogs(params?: PaginationParams): Promise<any[]> {
+    // Эндпоинт обычно называется time-logs
+    return fetchAllPaginated<any>("time-logs", params);
+  },
+  
   /**
    * Определения свойств (Property Definitions)
    */
