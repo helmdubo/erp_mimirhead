@@ -137,10 +137,6 @@ async function fetchAllPaginated<T>(
         
       const items = Array.isArray(rawItems) ? rawItems : [];
 
-      // Kaiten может возвращать либо { items: [] }, либо прямой массив
-      const rawItems = (response as any).items || (response as any).data || response;
-      const items = Array.isArray(rawItems) ? rawItems : [];
-
       console.log(`  📄 Page ${pageCount}: offset=${currentOffset}, received=${items.length} items`);
 
       if (items.length === 0) {
