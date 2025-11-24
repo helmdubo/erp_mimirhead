@@ -56,9 +56,8 @@ async function fetchKaiten<T>(
     url: url.toString(),
     endpoint,
     hasToken: !!KAITEN_TOKEN,
-    tokenLength: KAITEN_TOKEN?.length,
-    tokenPrefix: KAITEN_TOKEN?.substring(0, 8) + "...",
-    baseUrl: KAITEN_URL,
+    // Не логируем полный токен для безопасности
+    tokenPrefix: KAITEN_TOKEN?.substring(0, 4) + "...",
   });
 
   const response = await fetch(url.toString(), {
@@ -74,10 +73,8 @@ async function fetchKaiten<T>(
     const errorText = await response.text();
     console.error("❌ Kaiten API Error:", {
       status: response.status,
-      statusText: response.statusText,
       url: url.toString(),
       errorBody: errorText,
-      headers: Object.fromEntries(response.headers.entries()),
     });
     throw new Error(
       `Kaiten API Error ${response.status}: ${response.statusText}. ${errorText}`
@@ -90,15 +87,17 @@ async function fetchKaiten<T>(
 
 /**
  * Универсальная функция для получения всех записей с пагинацией
+ * ИСПРАВЛЕНО: Теперь принимает и передает любые дополнительные параметры (...restParams)
  */
 async function fetchAllPaginated<T>(
   endpoint: string,
-  options: PaginationParams = {}
+  options: PaginationParams & Record<string, any> = {}
 ): Promise<T[]> {
   const {
     limit = DEFAULT_PAGE_SIZE,
     offset: initialOffset = 0,
     updated_since,
+    ...restParams // 🔥 ЗАХВАТЫВАЕМ ДОПОЛНИТЕЛЬНЫЕ ПАРАМЕТРЫ (from, to и др.)
   } = options;
 
   const allItems: T[] = [];
@@ -113,6 +112,7 @@ async function fetchAllPaginated<T>(
     const params: Record<string, string | number> = {
       limit,
       offset: currentOffset,
+      ...restParams, // 🔥 ПЕРЕДАЕМ ИХ В ЗАПРОС
     };
 
     if (updated_since) {
@@ -325,16 +325,7 @@ export const kaitenClient = {
   async getTags(): Promise<KaitenTag[]> {
     return fetchKaiten<KaitenTag[]>("tags");
   },
-  
-  /**
-   * Логи времени (Time Logs)
-   * Можно фильтровать по updated_since, чтобы забирать только новые списания.
-   */
-  async getTimeLogs(params?: PaginationParams): Promise<any[]> {
-    // Эндпоинт обычно называется time-logs
-    return fetchAllPaginated<any>("time-logs", params);
-  },
-  
+
   /**
    * Определения свойств (Property Definitions)
    */
@@ -358,6 +349,15 @@ export const kaitenClient = {
   },
 
   /**
+   * Логи времени (Time Logs)
+   * Можно фильтровать по updated_since, чтобы забирать только новые списания.
+   * ВАЖНО: Kaiten требует from/to, мы их передаем через params
+   */
+  async getTimeLogs(params?: PaginationParams & { from?: string; to?: string }): Promise<any[]> {
+    return fetchAllPaginated<any>("time-logs", params);
+  },
+
+  /**
    * Получить карточки с фильтром по статусу
    */
   async getCardsByStatus(
@@ -370,8 +370,6 @@ export const kaitenClient = {
       archived: { archived: true },
     };
 
-    // Kaiten API может иметь свои фильтры, это пример
-    // Нужно уточнить документацию API
     return fetchAllPaginated<KaitenCard>("cards", {
       ...params,
       ...filterMap[status],
