@@ -131,6 +131,9 @@ export class SyncOrchestrator {
     }
   }
 
+/**
+   * Получение данных из Kaiten по типу сущности
+   */
   private async fetchFromKaiten(entityType: EntityType, params?: any): Promise<any[]> {
     switch (entityType) {
       case 'spaces': return kaitenClient.getSpaces(params);
@@ -142,8 +145,25 @@ export class SyncOrchestrator {
       case 'property_definitions': return kaitenClient.getPropertyDefinitions();
       case 'tags': return kaitenClient.getTags();
       case 'cards': return kaitenClient.getCards(params);
-      // 3. Добавляем получение логов
-      case 'time_logs': return kaitenClient.getTimeLogs(params);
+      
+      // ИСПРАВЛЕНО: Передаем обязательные from/to
+      case 'time_logs':
+        // Kaiten требует диапазон. 
+        // Берем с запасом с 2000 года по текущий момент.
+        const now = new Date().toISOString();
+        const from = "2000-01-01T00:00:00.000Z"; 
+        
+        // Если это инкрементальное обновление, можно было бы поставить from = params.updated_since,
+        // но API time-logs часто фильтрует по "дате списания", а не "дате обновления записи".
+        // Поэтому безопаснее всегда брать широкий диапазон, а обновленные записи
+        // отфильтруются автоматически на этапе upsert (так как мы передаем updated_since тоже).
+        
+        return kaitenClient.getTimeLogs({ 
+            ...params, 
+            from: from, 
+            to: now 
+        });
+
       default: throw new Error(`Unknown entity type: ${entityType}`);
     }
   }
