@@ -37,56 +37,97 @@ if (!KAITEN_URL || !KAITEN_TOKEN) {
 }
 
 /**
- * Базовая функция для запросов к Kaiten API
+ * Retry helper с экспоненциальной задержкой
+ */
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries = 3,
+  baseDelay = 1000
+): Promise<T> {
+  let lastError: any;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      lastError = error;
+
+      // Проверяем, является ли это сетевой ошибкой
+      const isNetworkError =
+        error.code === 'ECONNRESET' ||
+        error.code === 'ETIMEDOUT' ||
+        error.code === 'ECONNREFUSED' ||
+        error.message?.includes('fetch failed') ||
+        error.message?.includes('network');
+
+      // Не ретраим, если это не сетевая ошибка или это последняя попытка
+      if (!isNetworkError || attempt === maxRetries) {
+        throw error;
+      }
+
+      // Экспоненциальная задержка: 1s, 2s, 4s
+      const delay = baseDelay * Math.pow(2, attempt);
+      console.warn(`⚠️ Network error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms...`, error.message);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError;
+}
+
+/**
+ * Базовая функция для запросов к Kaiten API с retry логикой
  */
 async function fetchKaiten<T>(
   endpoint: string,
   params?: Record<string, string | number>
 ): Promise<T> {
-  const url = new URL(`${KAITEN_URL}/api/latest/${endpoint}`);
+  return retryWithBackoff(async () => {
+    const url = new URL(`${KAITEN_URL}/api/latest/${endpoint}`);
 
-  // Добавляем query parameters
-  if (params) {
-    Object.entries(params).forEach(([key, value]) => {
-      url.searchParams.append(key, String(value));
-    });
-  }
+    // Добавляем query parameters
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        url.searchParams.append(key, String(value));
+      });
+    }
 
-  // Детальное логирование для отладки
-  console.log("🔍 Kaiten API Request:", {
-    url: url.toString(),
-    endpoint,
-    hasToken: !!KAITEN_TOKEN,
-    tokenLength: KAITEN_TOKEN?.length,
-    tokenPrefix: KAITEN_TOKEN?.substring(0, 8) + "...",
-    baseUrl: KAITEN_URL,
-  });
-
-  const response = await fetch(url.toString(), {
-    headers: {
-      Authorization: `Bearer ${KAITEN_TOKEN}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error("❌ Kaiten API Error:", {
-      status: response.status,
-      statusText: response.statusText,
+    // Детальное логирование для отладки
+    console.log("🔍 Kaiten API Request:", {
       url: url.toString(),
-      errorBody: errorText,
-      headers: Object.fromEntries(response.headers.entries()),
+      endpoint,
+      hasToken: !!KAITEN_TOKEN,
+      tokenLength: KAITEN_TOKEN?.length,
+      tokenPrefix: KAITEN_TOKEN?.substring(0, 8) + "...",
+      baseUrl: KAITEN_URL,
     });
-    throw new Error(
-      `Kaiten API Error ${response.status}: ${response.statusText}. ${errorText}`
-    );
-  }
 
-  console.log("✅ Kaiten API Success:", endpoint);
-  return response.json();
+    const response = await fetch(url.toString(), {
+      headers: {
+        Authorization: `Bearer ${KAITEN_TOKEN}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ Kaiten API Error:", {
+        status: response.status,
+        statusText: response.statusText,
+        url: url.toString(),
+        errorBody: errorText,
+        headers: Object.fromEntries(response.headers.entries()),
+      });
+      throw new Error(
+        `Kaiten API Error ${response.status}: ${response.statusText}. ${errorText}`
+      );
+    }
+
+    console.log("✅ Kaiten API Success:", endpoint);
+    return response.json();
+  });
 }
 
 /**

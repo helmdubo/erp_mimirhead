@@ -653,11 +653,15 @@ export class SyncOrchestrator {
    */
   private async completeSyncLog(logId: number, stats: any, durationMs: number): Promise<void> {
     if (!this.supabase || !logId) return;
+
+    // Убираем 'total' из stats, т.к. в sync_logs нет такой колонки
+    const { total: _total, ...statsWithoutTotal } = stats;
+
     const { error } = await this.supabase
       .from('sync_logs')
       .update({
         status: 'completed',
-        ...stats,
+        ...statsWithoutTotal,
         completed_at: new Date().toISOString(),
         duration_ms: durationMs,
       })
