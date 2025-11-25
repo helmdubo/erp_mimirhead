@@ -97,7 +97,10 @@ export class SyncOrchestrator {
       timeLogsTo,
     } = options;
 
+    console.log(`🚀 [Sync] Started. Entities: ${entityTypes?.join(', ') || 'ALL'}. Deps: ${resolveDependencies}`);
+
     if (!this.supabase) {
+      console.error("❌ [Sync] Supabase client missing");
       throw new Error("Supabase client not available");
     }
 
@@ -111,11 +114,12 @@ export class SyncOrchestrator {
 
     // Сортируем по зависимостям
     const sortedEntities = this.topologicalSort(entitiesToSync);
-    console.log(`Starting sync for entities:`, sortedEntities.join(', '));
+    console.log(`📋 [Sync] Execution Order:`, sortedEntities.join(' -> '));
 
     const results: SyncResult[] = [];
 
     for (const entityType of sortedEntities) {
+      console.log(`▶️ [Sync] Processing: ${entityType}...`);
       try {
         // Передаём в syncEntity полный объект options, чтобы тайм‑логи могли использовать диапазон
         const result = await this.syncEntity(entityType, {
@@ -123,13 +127,22 @@ export class SyncOrchestrator {
           timeLogsFrom,
           timeLogsTo,
         });
+
         results.push(result);
+
+        if (result.success) {
+          console.log(`✅ [Sync] ${entityType} Done. Processed: ${result.records_processed}`);
+        } else {
+          console.error(`❌ [Sync] ${entityType} FAILED: ${result.error}`);
+        }
+
         // Останавливаем синхронизацию при критической ошибке в базовых сущностях
         if (!result.success && ['spaces', 'boards', 'columns', 'lanes'].includes(entityType)) {
-          console.error(`⛔ Critical entity ${entityType} failed. Stopping sync to prevent data corruption.`);
+          console.error(`⛔ [Sync] Critical failure in ${entityType}. Aborting sequence.`);
           break;
         }
       } catch (error: any) {
+        console.error(`🔥 [Sync] CRASH in ${entityType}:`, error);
         results.push({
           entity_type: entityType,
           success: false,
@@ -137,11 +150,13 @@ export class SyncOrchestrator {
           records_created: 0,
           records_updated: 0,
           records_skipped: 0,
-          error: error.message,
+          error: error?.message || "Unknown crash",
           duration_ms: 0,
         });
       }
     }
+
+    console.log(`🏁 [Sync] Sequence finished.`);
     return results;
   }
 
@@ -201,9 +216,12 @@ export class SyncOrchestrator {
         }
       }
 
+      console.log(`📡 [${entityType}] Fetching from Kaiten...`);
       // Запрашиваем данные из Kaiten
       const kaitenData = await this.fetchFromKaiten(entityType, fetchParams);
+      console.log(`📦 [${entityType}] Received ${kaitenData.length} items.`);
 
+      console.log(`💾 [${entityType}] Upserting to DB...`);
       // Выполняем upsert в базу
       const stats = await this.upsertToDatabase(entityType, kaitenData);
 
@@ -219,7 +237,9 @@ export class SyncOrchestrator {
         duration_ms: duration,
       };
     } catch (error: any) {
+      console.error(`💀 [${entityType}] Error in syncEntity:`, error);
       const duration = Date.now() - startTime;
+      // Пытаемся записать ошибку в БД, но если это тайм-аут, это может не успеть выполниться
       await this.failSyncLog(logId, error.message, duration);
       return {
         entity_type: entityType,
@@ -283,11 +303,17 @@ export class SyncOrchestrator {
     const batchSize = 100;
     for (let i = 0; i < dbRows.length; i += batchSize) {
       const batch = dbRows.slice(i, i + batchSize);
+      console.log(`💾 [${entityType}] Batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(dbRows.length/batchSize)} (${batch.length} rows)`);
+
       const { error } = await this.supabase
         .schema('kaiten')
         .from(entityType)
         .upsert(batch as any, { onConflict: 'id' });
-      if (error) throw error;
+
+      if (error) {
+        console.error(`❌ [${entityType}] Batch insert error:`, error);
+        throw error;
+      }
       stats.records_processed += batch.length;
     }
     return stats;
@@ -596,11 +622,12 @@ export class SyncOrchestrator {
    */
   private async failSyncLog(logId: number, errorMessage: string, durationMs: number): Promise<void> {
     if (!this.supabase || !logId) return;
+    console.error(`💾 [DB Log] Writing failure for log ${logId}: ${errorMessage}`);
     await this.supabase
       .from('sync_logs')
       .update({
         status: 'failed',
-        error_message: errorMessage,
+        error_message: errorMessage?.substring(0, 1000), // Обрезаем, чтобы не переполнить
         completed_at: new Date().toISOString(),
         duration_ms: durationMs,
       })
