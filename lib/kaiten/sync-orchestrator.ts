@@ -361,12 +361,12 @@ export class SyncOrchestrator {
         }
 
         // Извлечение родителей и детей (id может быть в *_ids или в массивах объектов)
-        let finalParentIds = kaitenData.parents_ids;
-        let finalChildIds = kaitenData.children_ids;
-        if ((!finalParentIds || finalParentIds.length === 0) && Array.isArray(kaitenData.parents)) {
+        let finalParentIds = kaitenData.parents_ids || [];
+        let finalChildIds = kaitenData.children_ids || [];
+        if (kaitenData.parents && !finalParentIds.length) {
           finalParentIds = kaitenData.parents.map((p: any) => p.id);
         }
-        if ((!finalChildIds || finalChildIds.length === 0) && Array.isArray(kaitenData.children)) {
+        if (kaitenData.children && !finalChildIds.length) {
           finalChildIds = kaitenData.children.map((c: any) => c.id);
         }
 
@@ -397,8 +397,8 @@ export class SyncOrchestrator {
           completed_at: kaitenData.completed_at ? new Date(kaitenData.completed_at).toISOString() : null,
           properties: kaitenData.properties || {},
           tags_cache: kaitenData.tags || [],
-          parents_ids: finalParentIds || [],
-          children_ids: finalChildIds || [],
+          parents_ids: finalParentIds,
+          children_ids: finalChildIds,
           members_ids: membersIds,
           estimate_workload: kaitenData.estimate_workload || 0,
           kaiten_created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
