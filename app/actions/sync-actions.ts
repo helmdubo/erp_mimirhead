@@ -165,3 +165,23 @@ export async function syncTimeLogsRange(
     message: `Синк таймшитов запущен в фоне: ${from} → ${to}`,
   };
 }
+
+/**
+ * ПРИНУДИТЕЛЬНЫЙ синк только указанных сущностей БЕЗ зависимостей.
+ * Используется для отладки.
+ */
+export async function syncForceEntities(
+  entityTypes: string[]
+): Promise<ActionResult> {
+  // Запускаем fire-and-forget, но отключаем resolveDependencies
+  void syncOrchestrator.sync({
+    entityTypes: entityTypes as any,
+    incremental: false,
+    resolveDependencies: false, // <--- ВАЖНО: Отключаем зависимости
+  });
+
+  return {
+    status: "ok",
+    message: `Принудительный синк ${entityTypes.join(', ')} запущен (без зависимостей)`,
+  };
+}

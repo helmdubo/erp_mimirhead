@@ -10,6 +10,7 @@ import {
   syncIncrementalData,
   syncSpecificEntities,
   syncTimeLogsRange,
+  syncForceEntities,
 } from "@/app/actions/sync-actions";
 
 interface SyncControlsProps {
@@ -182,6 +183,31 @@ export function SyncControls({ onSyncComplete }: SyncControlsProps) {
     }, 1000);
   };
 
+  const handleForceSync = async (entities: string[]) => {
+    setSyncing(true);
+    setStatus(`Запуск FORCE синка: ${entities.join(", ")}...`);
+    setError(null);
+    setResults(null);
+
+    // Принудительная синхронизация без зависимостей
+    syncForceEntities(entities).catch(() => {
+      // Игнорируем timeout error
+    });
+
+    setStatus(`⏳ FORCE синк ${entities.join(", ")} запущен в фоне (без зависимостей)...`);
+
+    setTimeout(() => {
+      setStatus("🔄 Обновление страницы...");
+      window.location.reload();
+    }, 60000);
+
+    setTimeout(() => {
+      setStatus(
+        "⏳ Синхронизация в процессе. Страница автоматически обновится через ~60 секунд."
+      );
+    }, 1000);
+  };
+
   return (
     <div className="space-y-6">
       {/* Основные кнопки */}
@@ -215,6 +241,13 @@ export function SyncControls({ onSyncComplete }: SyncControlsProps) {
             Только карточки
           </button>
           <button
+            onClick={() => handleQuickSync(["card_types"])}
+            disabled={syncing}
+            className="rounded bg-slate-100 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-200 disabled:opacity-50"
+          >
+            Типы карточек
+          </button>
+          <button
             onClick={() => handleQuickSync(["boards", "columns", "lanes"])}
             disabled={syncing}
             className="rounded bg-slate-100 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-200 disabled:opacity-50"
@@ -234,6 +267,31 @@ export function SyncControls({ onSyncComplete }: SyncControlsProps) {
             className="rounded bg-slate-100 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-200 disabled:opacity-50"
           >
             Только таймшиты (без диапазона)
+          </button>
+        </div>
+      </div>
+
+      {/* FORCE действия для отладки */}
+      <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+        <h3 className="mb-3 font-semibold text-red-700">⚠️ Отладка (без зависимостей):</h3>
+        <p className="mb-3 text-sm text-red-600">
+          Эти кнопки запускают синхронизацию БЕЗ проверки зависимостей.
+          Используйте только для диагностики проблем.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => handleForceSync(["cards"])}
+            disabled={syncing}
+            className="rounded bg-red-100 px-3 py-1.5 text-sm text-red-700 hover:bg-red-200 disabled:opacity-50 border border-red-300"
+          >
+            ⚠️ FORCE Cards Only
+          </button>
+          <button
+            onClick={() => handleForceSync(["card_types"])}
+            disabled={syncing}
+            className="rounded bg-red-100 px-3 py-1.5 text-sm text-red-700 hover:bg-red-200 disabled:opacity-50 border border-red-300"
+          >
+            ⚠️ FORCE Card Types Only
           </button>
         </div>
       </div>
