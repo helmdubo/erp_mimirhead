@@ -276,18 +276,30 @@ export class SyncOrchestrator {
   /**
    * Обращается к Kaiten API в зависимости от типа сущности
    */
+  /**
+   * Обращается к Kaiten API в зависимости от типа сущности
+   * Увеличиваем лимит до 1000 для тяжелых сущностей, чтобы уменьшить кол-во запросов
+   */
   private async fetchFromKaiten(entityType: EntityType, params?: any): Promise<any[]> {
+    // Базовые параметры, если limit не передан
+    const baseParams = { ...params };
+    
     switch (entityType) {
-      case 'spaces': return kaitenClient.getSpaces(params);
-      case 'boards': return kaitenClient.getBoards();
+      case 'spaces': return kaitenClient.getSpaces(baseParams);
+      case 'boards': return kaitenClient.getBoards(); // Boards грузятся через spaces, там своя логика
       case 'columns': return kaitenClient.getColumns();
       case 'lanes': return kaitenClient.getLanes();
-      case 'users': return kaitenClient.getUsers(params);
+      case 'users': return kaitenClient.getUsers(baseParams);
       case 'card_types': return kaitenClient.getCardTypes();
       case 'property_definitions': return kaitenClient.getPropertyDefinitions();
       case 'tags': return kaitenClient.getTags();
-      case 'time_logs': return kaitenClient.getTimeLogs(params);
-      case 'cards': return kaitenClient.getCards(params);
+      
+      // ОПТИМИЗАЦИЯ: Грузим по 1000 записей за раз
+      case 'time_logs': 
+        return kaitenClient.getTimeLogs({ ...baseParams, limit: 1000 });
+      case 'cards': 
+        return kaitenClient.getCards({ ...baseParams, limit: 1000 });
+        
       default:
         throw new Error(`Unknown entity type: ${entityType}`);
     }

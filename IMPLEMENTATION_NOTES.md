@@ -510,3 +510,26 @@ for (let i = 0; i < allMemberLinks.length; i += 1000) {
 1. Apply migration: `npx supabase db push`
 2. Run full sync to populate `space_id` and `card_members`
 3. Verify NULL values are fixed
+
+
+---
+
+## 🆕 Session Date: 2025-11-25
+
+### 11. Vercel "Fire-and-Forget" Process Freeze
+
+**Problem:** Cards and Time Logs were not syncing or syncing partially. Logs showed the process starting but then "silently dying" or timing out after 60s without progress.
+
+**Cause:** - We used `void syncOrchestrator.sync(...)` in Server Actions to return a quick response to the UI ("fire-and-forget").
+- **Vercel Behavior:** Serverless containers are frozen/paused immediately after the response is sent. The background sync process was effectively killed instantly.
+
+**Solution:**
+- **Removed** all fire-and-forget logic (`void`).
+- **Removed** distinction between "heavy" and "light" entities in actions.
+- **Enforced** `await` for ALL sync operations in `app/actions/sync-actions.ts`.
+
+**Result:** - Sync process stays alive because the request is kept open.
+- Operations complete successfully within the ~35-40s window (under the 60s limit).
+- Data integrity is restored.
+
+**Warning for future dev:** Do not attempt to make sync "background" via Server Actions without an external queue (like Inngest/QStash). For simple Vercel functions, **always await**.

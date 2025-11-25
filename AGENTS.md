@@ -52,3 +52,15 @@ ERP-mimirhead/
 └── tsconfig.json
 ```
 ## 3. If you need to create new files or folders, follow this structure and keep things consistent.
+
+---
+
+## 4. Critical Architecture Rules (DO NOT BREAK)
+
+### ⚡ Server Actions & Vercel Runtime
+**STRICT RULE:** NEVER use "fire-and-forget" patterns (the `void` operator) for background tasks in Server Actions.
+
+- **Why:** Vercel immediately freezes/terminates the serverless container once a response is returned to the client. Any detached promises (`void func()`) are killed or paused indefinitely.
+- **Requirement:** ALWAYS `await` long-running operations (like `syncOrchestrator.sync`) inside the Server Action.
+- **Timeout Management:** Rely on `export const maxDuration = 60;` (or higher) in the page config. It is better to let the client wait than to have incomplete data.
+- **Do Not Optimize:** Do not try to return "200 OK" early to improve UX. This WILL break the sync process.
