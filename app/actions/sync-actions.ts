@@ -1,160 +1,134 @@
-"use server";
+ "use server";
 
 /**
- * Server Actions для синхронизации с Kaiten
- * Могут вызываться напрямую из клиентских компонентов
+ * Server Actions для управления синхронизацией с Kaiten
+ *
+ * Важно:
+ * - "тяжёлые" операции (cards, time_logs) мы запускаем в фоне
+ *   чтобы не упираться в таймауты Vercel/браузера.
  */
 
-import { syncOrchestrator } from "@/lib/kaiten";
-import { revalidatePath } from "next/cache";
+import { getServiceSupabaseClient } from "@/lib/supabase/server";
+import { syncOrchestrator } from "@/lib/kaiten/sync-orchestrator";
 
-export type SyncStatus = "idle" | "syncing" | "success" | "error";
+type ActionResult =
+  | { status: "ok"; message: string; results?: any[] }
+  | { status: "error"; message: string; error?: string };
 
-export interface SyncActionResult {
-  status: SyncStatus;
-  message: string;
-  results?: any[];
-  error?: string;
+function isHeavy(entities: string[]): boolean {
+  return entities.includes("cards") || entities.includes("time_logs");
 }
 
-/**
- * Полная синхронизация всех данных
- */
-export async function syncAllData(): Promise<SyncActionResult> {
+export async function getSyncStatus(): Promise<
+  | { metadata: any[]; recentLogs: any[] }
+  | { error: string }
+> {
+  const supabase = getServiceSupabaseClient();
+
   try {
-    console.log("Starting full sync...");
-
-    const results = await syncOrchestrator.sync({
-      incremental: false,
-      resolveDependencies: true,
-    });
-
-    const hasErrors = results.some((r) => !r.success);
-
-    // Инвалидируем кэш страниц после синхронизации
-    revalidatePath("/admin");
-    revalidatePath("/cards");
-
-    return {
-      status: hasErrors ? "error" : "success",
-      message: hasErrors
-        ? "Синхронизация завершена с ошибками"
-        : `Успешно синхронизировано ${results.length} типов данных`,
-      results,
-    };
-  } catch (error: any) {
-    console.error("Full sync error:", error);
-    return {
-      status: "error",
-      message: "Ошибка синхронизации",
-      error: error.message,
-    };
-  }
-}
-
-/**
- * Инкрементальная синхронизация (только измененные данные)
- */
-export async function syncIncrementalData(): Promise<SyncActionResult> {
-  try {
-    console.log("Starting incremental sync...");
-
-    const results = await syncOrchestrator.sync({
-      incremental: true,
-      resolveDependencies: true,
-    });
-
-    const hasErrors = results.some((r) => !r.success);
-
-    revalidatePath("/admin");
-    revalidatePath("/cards");
-
-    return {
-      status: hasErrors ? "error" : "success",
-      message: hasErrors
-        ? "Обновление завершено с ошибками"
-        : `Успешно обновлено ${results.length} типов данных`,
-      results,
-    };
-  } catch (error: any) {
-    console.error("Incremental sync error:", error);
-    return {
-      status: "error",
-      message: "Ошибка обновления данных",
-      error: error.message,
-    };
-  }
-}
-
-/**
- * Синхронизация конкретных типов данных
- */
-export async function syncSpecificEntities(
-  entities: string[],
-  incremental = false
-): Promise<SyncActionResult> {
-  try {
-    console.log(`Syncing entities: ${entities.join(", ")}`);
-
-    const results = await syncOrchestrator.sync({
-      entityTypes: entities as any,
-      incremental,
-      resolveDependencies: true,
-    });
-
-    const hasErrors = results.some((r) => !r.success);
-
-    revalidatePath("/admin");
-    revalidatePath("/cards");
-
-    return {
-      status: hasErrors ? "error" : "success",
-      message: hasErrors
-        ? `Синхронизация ${entities.join(", ")} завершена с ошибками`
-        : `Успешно синхронизировано: ${entities.join(", ")}`,
-      results,
-    };
-  } catch (error: any) {
-    console.error("Specific entities sync error:", error);
-    return {
-      status: "error",
-      message: "Ошибка синхронизации",
-      error: error.message,
-    };
-  }
-}
-
-/**
- * Получить статус последней синхронизации
- */
-export async function getSyncStatus() {
-  try {
-    const { getServiceSupabaseClient } = await import("@/lib/supabase/server");
-    const supabase = getServiceSupabaseClient();
-
-    if (!supabase) {
-      return { error: "Database not available" };
-    }
-
-    // Получаем метаданные всех сущностей
-    const { data: metadata } = await supabase
+    const { data: metadata, error: metaErr } = await supabase
       .from("sync_metadata")
       .select("*")
-      .order("entity_type");
+      .order("entity_type", { ascending: true });
 
-    // Получаем последние логи
-    const { data: recentLogs } = await supabase
+    if (metaErr) {
+      return { error: metaErr.message };
+    }
+
+    const { data: recentLogs, error: logsErr } = await supabase
       .from("sync_logs")
       .select("*")
       .order("started_at", { ascending: false })
-      .limit(10);
+      .limit(50);
+
+    if (logsErr) {
+      return { error: logsErr.message };
+    }
+
+    return { metadata: metadata ?? [], recentLogs: recentLogs ?? [] };
+  } catch (e: any) {
+    return { error: e?.message ?? "Unknown error" };
+  }
+}
+
+export async function syncAllData(): Promise<ActionResult> {
+  // fire-and-forget
+  void syncOrchestrator.sync({ incremental: false, resolveDependencies: true });
+
+  return {
+    status: "ok",
+    message: "Синхронизация запущена в фоне",
+  };
+}
+
+export async function syncIncrementalData(): Promise<ActionResult> {
+  // fire-and-forget
+  void syncOrchestrator.sync({ incremental: true, resolveDependencies: true });
+
+  return {
+    status: "ok",
+    message: "Инкрементальный синк запущен в фоне",
+  };
+}
+
+export async function syncSpecificEntities(
+  entityTypes: string[],
+  options?: { timeLogsFrom?: string; timeLogsTo?: string }
+): Promise<ActionResult> {
+  try {
+    if (isHeavy(entityTypes)) {
+      void syncOrchestrator.sync({
+        entityTypes: entityTypes as any,
+        incremental: false,
+        resolveDependencies: true,
+        timeLogsFrom: options?.timeLogsFrom,
+        timeLogsTo: options?.timeLogsTo,
+      });
+
+      return {
+        status: "ok",
+        message: "Синхронизация запущена в фоне",
+      };
+    }
+
+    // лёгкие сущности — можно ждать результат (быстрее и UX приятнее)
+    const results = await syncOrchestrator.sync({
+      entityTypes: entityTypes as any,
+      incremental: false,
+      resolveDependencies: true,
+      timeLogsFrom: options?.timeLogsFrom,
+      timeLogsTo: options?.timeLogsTo,
+    });
 
     return {
-      metadata: metadata || [],
-      recentLogs: recentLogs || [],
+      status: "ok",
+      message: "Синхронизация завершена",
+      results,
     };
-  } catch (error: any) {
-    console.error("Get sync status error:", error);
-    return { error: error.message };
+  } catch (e: any) {
+    return {
+      status: "error",
+      message: "Ошибка синхронизации",
+      error: e?.message ?? "Unknown error",
+    };
   }
+}
+
+export async function syncTimeLogsRange(
+  from: string,
+  to: string
+): Promise<ActionResult> {
+  // всегда считаем тяжёлой операцией
+  void syncOrchestrator.sync({
+    entityTypes: ["time_logs"] as any,
+    incremental: false,
+    resolveDependencies: true,
+    timeLogsFrom: from,
+    timeLogsTo: to,
+  });
+
+  return {
+    status: "ok",
+    message: `Синк таймшитов запущен в фоне: ${from} → ${to}`,
+  };
 }
