@@ -578,21 +578,39 @@ export class SyncOrchestrator {
   }
 
   /**
-   * Обновляет метаданные синхронизации в базе
+   * Обновляет метаданные синхронизации в базе.
+   * * FIX: Теперь мы запрашиваем реальное количество записей (count) из таблицы,
+   * вместо использования batchCount. Это решает проблему параллельной синхронизации,
+   * когда частичное обновление (один месяц) перезаписывало total_records своим значением.
    */
-  private async updateSyncMetadata(entityType: EntityType, incremental: boolean, totalRecords: number): Promise<void> {
+  private async updateSyncMetadata(entityType: EntityType, incremental: boolean, _batchCount: number): Promise<void> {
     if (!this.supabase) return;
+
+    // 1. Получаем АКТУАЛЬНОЕ количество записей в таблице
+    // Используем head: true и count: 'exact', чтобы не тянуть данные, а только посчитать
+    const { count, error: countError } = await this.supabase
+      .schema('kaiten')
+      .from(entityType)
+      .select('*', { count: 'exact', head: true });
+
+    if (countError) {
+      console.error(`⚠️ [${entityType}] Failed to count total records:`, countError);
+    }
+
+    // 2. Записываем в метаданные реальный total из базы
     const record: any = {
       entity_type: entityType,
       status: 'idle',
       error_message: null,
-      total_records: totalRecords,
+      total_records: count ?? _batchCount, // Если count не удалось получить, используем старое поведение
     };
+
     if (incremental) {
       record.last_incremental_sync_at = new Date().toISOString();
     } else {
       record.last_full_sync_at = new Date().toISOString();
     }
+
     const { error } = await this.supabase
       .from('sync_metadata')
       .upsert(record, { onConflict: 'entity_type' });
