@@ -6,6 +6,7 @@
 
 import { getServiceSupabaseClient } from "@/lib/supabase/server";
 import { kaitenClient, kaitenUtils } from "./client";
+import { debugLogger } from "@/lib/debug-logger";
 
 /**
  * Тип сущностей, которые можем синхронизировать
@@ -217,18 +218,27 @@ export class SyncOrchestrator {
       }
 
       console.log(`📡 [${entityType}] Fetching from Kaiten with params:`, fetchParams);
+      await debugLogger.info(`Fetching ${entityType} from Kaiten`, entityType, { params: fetchParams });
+
       // Запрашиваем данные из Kaiten
       const kaitenData = await this.fetchFromKaiten(entityType, fetchParams);
       console.log(`📦 [${entityType}] Received ${kaitenData.length} items.`);
+      await debugLogger.info(`Received ${kaitenData.length} ${entityType} items`, entityType, { count: kaitenData.length });
 
       if (kaitenData.length > 0 && ['cards', 'time_logs'].includes(entityType)) {
         console.log(`🔍 [${entityType}] Sample raw data (first item):`, JSON.stringify(kaitenData[0]).substring(0, 500));
       }
 
       console.log(`💾 [${entityType}] Starting transformation and upsert to DB...`);
+      await debugLogger.info(`Starting upsert ${kaitenData.length} ${entityType} to DB`, entityType);
+
       // Выполняем upsert в базу
       const stats = await this.upsertToDatabase(entityType, kaitenData);
       console.log(`✨ [${entityType}] Upsert completed successfully.`);
+      await debugLogger.info(`Upsert completed for ${entityType}`, entityType, {
+        processed: stats.records_processed,
+        total: stats.total
+      });
 
       // Обновляем метаданные синхронизации
       await this.updateSyncMetadata(entityType, incremental, stats.total);
@@ -243,6 +253,10 @@ export class SyncOrchestrator {
       };
     } catch (error: any) {
       console.error(`💀 [${entityType}] Error in syncEntity:`, error);
+      await debugLogger.error(`Error in syncEntity for ${entityType}: ${error.message}`, entityType, {
+        error: error.message,
+        stack: error.stack
+      });
       const duration = Date.now() - startTime;
       // Пытаемся записать ошибку в БД, но если это тайм-аут, это может не успеть выполниться
       await this.failSyncLog(logId, error.message, duration);
@@ -329,6 +343,11 @@ export class SyncOrchestrator {
         if (batch.length > 0) {
           console.error(`❌ [${entityType}] First item in failed batch:`, JSON.stringify(batch[0]));
         }
+        await debugLogger.error(`Batch ${batchNum} upsert failed for ${entityType}`, entityType, {
+          error: JSON.stringify(error),
+          batchSize: batch.length,
+          firstItem: batch[0]
+        });
         throw error;
       }
       console.log(`✓ [${entityType}] Batch ${batchNum}/${totalBatches} upserted successfully.`);
