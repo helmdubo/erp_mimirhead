@@ -20,7 +20,7 @@ class DebugLogger {
     if (!this.enabled || !this.supabase) return;
 
     try {
-      await this.supabase
+      await (this.supabase as any)
         .from('sync_debug_logs')
         .insert({
           log_level: level,
@@ -55,7 +55,7 @@ class DebugLogger {
   async getRecentLogs(limit = 100): Promise<any[]> {
     if (!this.supabase) return [];
 
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('sync_debug_logs')
       .select('*')
       .order('created_at', { ascending: false })

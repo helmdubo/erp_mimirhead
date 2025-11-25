@@ -18,7 +18,7 @@ export default async function DebugLogsPage() {
     );
   }
 
-  const { data: logs, error } = await supabase
+  const { data: logs, error } = await (supabase as any)
     .from('sync_debug_logs')
     .select('*')
     .order('created_at', { ascending: false })
