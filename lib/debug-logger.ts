@@ -74,7 +74,7 @@ class DebugLogger {
    */
   async clearLogs(): Promise<void> {
     if (!this.supabase) return;
-    await this.supabase.rpc('cleanup_old_debug_logs');
+    await (this.supabase as any).rpc('cleanup_old_debug_logs');
   }
 }
 
