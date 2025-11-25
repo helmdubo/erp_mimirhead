@@ -655,7 +655,8 @@ export class SyncOrchestrator {
     if (!this.supabase || !logId) return;
 
     // Убираем 'total' из stats, т.к. в sync_logs нет такой колонки
-    const { total: _total, ...statsWithoutTotal } = stats;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { total, ...statsWithoutTotal } = stats;
 
     const { error } = await this.supabase
       .from('sync_logs')
