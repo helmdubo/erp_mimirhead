@@ -514,22 +514,31 @@ for (let i = 0; i < allMemberLinks.length; i += 1000) {
 
 ---
 
+---
+
 ## 🆕 Session Date: 2025-11-25
 
 ### 11. Vercel "Fire-and-Forget" Process Freeze
+**Problem:** Sync process started but silently stopped/froze without completing.
+**Cause:** Using `void` in Server Actions returns response immediately, causing Vercel to freeze the Lambda container.
+**Solution:** Replaced all `void` with `await`. Client now waits for completion.
 
-**Problem:** Cards and Time Logs were not syncing or syncing partially. Logs showed the process starting but then "silently dying" or timing out after 60s without progress.
+### 12. Pagination & Limit Bug
+**Problem:** Only 100 cards were synced despite `limit: 1000`.
+**Cause:** Kaiten API ignores `limit > 100`. Logic `received < requested` (100 < 1000) incorrectly triggered "last page" condition.
+**Solution:** Reverted `limit` to default (100) in `sync-orchestrator.ts`.
 
-**Cause:** - We used `void syncOrchestrator.sync(...)` in Server Actions to return a quick response to the UI ("fire-and-forget").
-- **Vercel Behavior:** Serverless containers are frozen/paused immediately after the response is sent. The background sync process was effectively killed instantly.
-
+### 13. Time Logs Performance & Timeouts
+**Problem:** Syncing time logs for a year sequentially took too long (>60s), causing timeouts.
 **Solution:**
-- **Removed** all fire-and-forget logic (`void`).
-- **Removed** distinction between "heavy" and "light" entities in actions.
-- **Enforced** `await` for ALL sync operations in `app/actions/sync-actions.ts`.
+1. **Parallel Sync:** Implemented `syncTimeLogsYearParallel` to sync 12 months in parallel (batches of 3 to respect rate limits).
+2. **Disable Dependencies:** Created `resolveDependencies: false` option to skip re-fetching 1000+ cards before logs.
+3. **Remove FKs:** Removed Foreign Keys from `time_logs` (`20250125000003_remove_timelogs_fks.sql`) to allow inserting logs for missing/deleted cards.
 
-**Result:** - Sync process stays alive because the request is kept open.
-- Operations complete successfully within the ~35-40s window (under the 60s limit).
-- Data integrity is restored.
+### 14. UI Total Records Count Glitch
+**Problem:** In parallel sync, the last finishing thread overwrote `total_records` with just its month's count (e.g., 650 instead of 5000).
+**Solution:** Updated `updateSyncMetadata` to perform a `SELECT count(*)` from DB instead of using the batch count. Now reflects true total.
 
-**Warning for future dev:** Do not attempt to make sync "background" via Server Actions without an external queue (like Inngest/QStash). For simple Vercel functions, **always await**.
+### 15. Build Failures (ESLint)
+**Problem:** `npm run build` failed due to unused variables after removing debug UI.
+**Solution:** Cleaned up `sync-controls.tsx` removing unused imports and variables.

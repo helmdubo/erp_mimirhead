@@ -55,6 +55,8 @@ ERP-mimirhead/
 
 ---
 
+---
+
 ## 4. Critical Architecture Rules (DO NOT BREAK)
 
 ### ⚡ Server Actions & Vercel Runtime
@@ -63,4 +65,15 @@ ERP-mimirhead/
 - **Why:** Vercel immediately freezes/terminates the serverless container once a response is returned to the client. Any detached promises (`void func()`) are killed or paused indefinitely.
 - **Requirement:** ALWAYS `await` long-running operations (like `syncOrchestrator.sync`) inside the Server Action.
 - **Timeout Management:** Rely on `export const maxDuration = 60;` (or higher) in the page config. It is better to let the client wait than to have incomplete data.
-- **Do Not Optimize:** Do not try to return "200 OK" early to improve UX. This WILL break the sync process.
+
+### 🧹 Code Quality & Build Process
+**STRICT RULE:** Ensure no ESLint errors before "finishing" a task.
+
+- **Unused Variables:** Do not leave unused variables or imports (e.g., `results`, `syncForceEntities`). The build command (`npm run build`) WILL FAIL if there are any ESLint warnings/errors.
+- **Verification:** If you remove code/features (like debug buttons), verify you also removed their imports and associated state variables.
+
+### 📊 Data Warehouse Strategy
+**STRICT RULE:** Do not enforce Foreign Key constraints for `cards` and `time_logs` tables.
+
+- **Why:** This is an analytical replica. We need raw data even if parents (users/boards) are deleted or not yet synced.
+- **Implementation:** Use `LEFT JOIN` in queries to handle missing relations.

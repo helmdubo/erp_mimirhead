@@ -311,3 +311,38 @@ NOTIFY pgrst, 'reload config';
 - Fixed `space_id` NULL values (extracts from nested structure)
 - Added `card_members` M:N table with batch-optimized sync
 - Preserved performance optimizations (batch operations)
+
+
+# ✅ Supabase + Kaiten Integration - Setup Complete
+
+## 🎯 Current Status (2025-11-25)
+
+**✅ SYNC IS FULLY WORKING!**
+- **Cards:** All 999+ cards syncing correctly (pagination fixed).
+- **Time Logs:** Full history syncing via "Parallel Year Sync" (12 months parallel).
+- **Performance:** ~15-20s for incremental updates.
+
+### Latest Improvements:
+1. **Vercel Stability:** Switched from fire-and-forget to `await` pattern to prevent container freezing.
+2. **Parallel Time Logs:** Added capability to sync full year in parallel streams.
+3. **Data Warehouse Mode:** FK constraints removed from `cards` and `time_logs` for maximum data retention.
+4. **Accurate Stats:** UI now shows real DB counts even during parallel updates.
+
+---
+
+## 🚀 How to Run Sync
+
+### Standard:
+- **"🔄 Полная синхронизация"** — Syncs structure, users, and cards (optimized, excludes heavy time logs).
+- **"⚡ Обновить изменения"** — Quick incremental sync for all entities (including recent time logs).
+
+### Heavy Data:
+- **"🚀 Загрузить весь год"** — Special parallel handler for Time Logs (bypasses dependencies check for speed).
+
+---
+
+## ⚠️ Architecture Note
+**Time Logs & Cards Relationship:**
+We intentionally removed Foreign Keys (`time_logs_card_id_fkey`).
+- **Why:** To allow fast parallel syncing of logs without checking if every card exists.
+- **Usage:** Always use `LEFT JOIN kaiten.cards` when querying time logs for reports.
