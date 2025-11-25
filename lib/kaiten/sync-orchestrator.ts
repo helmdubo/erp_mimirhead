@@ -6,6 +6,7 @@
 
 import { getServiceSupabaseClient } from "@/lib/supabase/server";
 import { kaitenClient, kaitenUtils } from "./client";
+import { debugLogger } from "@/lib/debug-logger";
 
 /**
  * Тип сущностей, которые можем синхронизировать
@@ -216,14 +217,28 @@ export class SyncOrchestrator {
         }
       }
 
-      console.log(`📡 [${entityType}] Fetching from Kaiten...`);
+      console.log(`📡 [${entityType}] Fetching from Kaiten with params:`, fetchParams);
+      await debugLogger.info(`Fetching ${entityType} from Kaiten`, entityType, { params: fetchParams });
+
       // Запрашиваем данные из Kaiten
       const kaitenData = await this.fetchFromKaiten(entityType, fetchParams);
       console.log(`📦 [${entityType}] Received ${kaitenData.length} items.`);
+      await debugLogger.info(`Received ${kaitenData.length} ${entityType} items`, entityType, { count: kaitenData.length });
 
-      console.log(`💾 [${entityType}] Upserting to DB...`);
+      if (kaitenData.length > 0 && ['cards', 'time_logs'].includes(entityType)) {
+        console.log(`🔍 [${entityType}] Sample raw data (first item):`, JSON.stringify(kaitenData[0]).substring(0, 500));
+      }
+
+      console.log(`💾 [${entityType}] Starting transformation and upsert to DB...`);
+      await debugLogger.info(`Starting upsert ${kaitenData.length} ${entityType} to DB`, entityType);
+
       // Выполняем upsert в базу
       const stats = await this.upsertToDatabase(entityType, kaitenData);
+      console.log(`✨ [${entityType}] Upsert completed successfully.`);
+      await debugLogger.info(`Upsert completed for ${entityType}`, entityType, {
+        processed: stats.records_processed,
+        total: stats.total
+      });
 
       // Обновляем метаданные синхронизации
       await this.updateSyncMetadata(entityType, incremental, stats.total);
@@ -238,6 +253,10 @@ export class SyncOrchestrator {
       };
     } catch (error: any) {
       console.error(`💀 [${entityType}] Error in syncEntity:`, error);
+      await debugLogger.error(`Error in syncEntity for ${entityType}: ${error.message}`, entityType, {
+        error: error.message,
+        stack: error.stack
+      });
       const duration = Date.now() - startTime;
       // Пытаемся записать ошибку в БД, но если это тайм-аут, это может не успеть выполниться
       await this.failSyncLog(logId, error.message, duration);
@@ -295,15 +314,23 @@ export class SyncOrchestrator {
     };
 
     // Преобразуем данные в формат базы
+    console.log(`🔄 [${entityType}] Transforming ${data.length} items...`);
     const dbRows = await Promise.all(
       data.map(async (item) => await this.transformToDbFormat(entityType, item))
     );
+    console.log(`✓ [${entityType}] Transformation complete. Got ${dbRows.length} rows.`);
+
+    if (dbRows.length > 0 && ['cards', 'time_logs'].includes(entityType)) {
+      console.log(`🔍 [${entityType}] Sample transformed data (first item):`, JSON.stringify(dbRows[0]).substring(0, 500));
+    }
 
     // Upsert батчами
-    const batchSize = 100;
+    const batchSize = 1000;
     for (let i = 0; i < dbRows.length; i += batchSize) {
       const batch = dbRows.slice(i, i + batchSize);
-      console.log(`💾 [${entityType}] Batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(dbRows.length/batchSize)} (${batch.length} rows)`);
+      const batchNum = Math.floor(i/batchSize) + 1;
+      const totalBatches = Math.ceil(dbRows.length/batchSize);
+      console.log(`💾 [${entityType}] Batch ${batchNum}/${totalBatches} (${batch.length} rows) - Starting upsert...`);
 
       const { error } = await this.supabase
         .schema('kaiten')
@@ -311,11 +338,22 @@ export class SyncOrchestrator {
         .upsert(batch as any, { onConflict: 'id' });
 
       if (error) {
-        console.error(`❌ [${entityType}] Batch insert error:`, error);
+        console.error(`❌ [${entityType}] Batch ${batchNum} insert error:`, error);
+        console.error(`❌ [${entityType}] Error details:`, JSON.stringify(error, null, 2));
+        if (batch.length > 0) {
+          console.error(`❌ [${entityType}] First item in failed batch:`, JSON.stringify(batch[0]));
+        }
+        await debugLogger.error(`Batch ${batchNum} upsert failed for ${entityType}`, entityType, {
+          error: JSON.stringify(error),
+          batchSize: batch.length,
+          firstItem: batch[0]
+        });
         throw error;
       }
+      console.log(`✓ [${entityType}] Batch ${batchNum}/${totalBatches} upserted successfully.`);
       stats.records_processed += batch.length;
     }
+    console.log(`🎉 [${entityType}] All batches completed. Total processed: ${stats.records_processed}`);
     return stats;
   }
 
@@ -342,12 +380,12 @@ export class SyncOrchestrator {
         }
 
         // Извлечение родителей и детей (id может быть в *_ids или в массивах объектов)
-        let finalParentIds = kaitenData.parents_ids;
-        let finalChildIds = kaitenData.children_ids;
-        if ((!finalParentIds || finalParentIds.length === 0) && Array.isArray(kaitenData.parents)) {
+        let finalParentIds = kaitenData.parents_ids || [];
+        let finalChildIds = kaitenData.children_ids || [];
+        if (kaitenData.parents && !finalParentIds.length) {
           finalParentIds = kaitenData.parents.map((p: any) => p.id);
         }
-        if ((!finalChildIds || finalChildIds.length === 0) && Array.isArray(kaitenData.children)) {
+        if (kaitenData.children && !finalChildIds.length) {
           finalChildIds = kaitenData.children.map((c: any) => c.id);
         }
 
@@ -378,8 +416,8 @@ export class SyncOrchestrator {
           completed_at: kaitenData.completed_at ? new Date(kaitenData.completed_at).toISOString() : null,
           properties: kaitenData.properties || {},
           tags_cache: kaitenData.tags || [],
-          parents_ids: finalParentIds || [],
-          children_ids: finalChildIds || [],
+          parents_ids: finalParentIds,
+          children_ids: finalChildIds,
           members_ids: membersIds,
           estimate_workload: kaitenData.estimate_workload || 0,
           kaiten_created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
@@ -583,9 +621,13 @@ export class SyncOrchestrator {
       record.last_full_sync_at = new Date().toISOString();
     }
     // Используем upsert, чтобы автоматически создать строку если её нет
-    await this.supabase
+    const { error } = await this.supabase
       .from('sync_metadata')
       .upsert(record, { onConflict: 'entity_type' });
+
+    if (error) {
+      console.error(`⚠️ [${entityType}] Failed to update sync_metadata:`, error);
+    }
   }
 
   /**
@@ -593,11 +635,16 @@ export class SyncOrchestrator {
    */
   private async createSyncLog(entityType: EntityType, syncType: string): Promise<number> {
     if (!this.supabase) return 0;
-    const { data } = await this.supabase
+    const { data, error } = await this.supabase
       .from('sync_logs')
       .insert({ entity_type: entityType, sync_type: syncType, status: 'started' })
       .select('id')
       .single();
+
+    if (error) {
+      console.error(`⚠️ [${entityType}] Failed to create sync_log:`, error);
+      return 0;
+    }
     return data?.id || 0;
   }
 
@@ -606,15 +653,24 @@ export class SyncOrchestrator {
    */
   private async completeSyncLog(logId: number, stats: any, durationMs: number): Promise<void> {
     if (!this.supabase || !logId) return;
-    await this.supabase
+
+    // Убираем 'total' из stats, т.к. в sync_logs нет такой колонки
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { total, ...statsWithoutTotal } = stats;
+
+    const { error } = await this.supabase
       .from('sync_logs')
       .update({
         status: 'completed',
-        ...stats,
+        ...statsWithoutTotal,
         completed_at: new Date().toISOString(),
         duration_ms: durationMs,
       })
       .eq('id', logId);
+
+    if (error) {
+      console.error(`⚠️ [Log ${logId}] Failed to complete sync_log:`, error);
+    }
   }
 
   /**
@@ -623,7 +679,7 @@ export class SyncOrchestrator {
   private async failSyncLog(logId: number, errorMessage: string, durationMs: number): Promise<void> {
     if (!this.supabase || !logId) return;
     console.error(`💾 [DB Log] Writing failure for log ${logId}: ${errorMessage}`);
-    await this.supabase
+    const { error } = await this.supabase
       .from('sync_logs')
       .update({
         status: 'failed',
@@ -632,6 +688,10 @@ export class SyncOrchestrator {
         duration_ms: durationMs,
       })
       .eq('id', logId);
+
+    if (error) {
+      console.error(`⚠️ [Log ${logId}] Failed to write failure to sync_log:`, error);
+    }
   }
 }
 
