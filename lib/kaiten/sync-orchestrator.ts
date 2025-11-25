@@ -216,14 +216,19 @@ export class SyncOrchestrator {
         }
       }
 
-      console.log(`📡 [${entityType}] Fetching from Kaiten...`);
+      console.log(`📡 [${entityType}] Fetching from Kaiten with params:`, fetchParams);
       // Запрашиваем данные из Kaiten
       const kaitenData = await this.fetchFromKaiten(entityType, fetchParams);
       console.log(`📦 [${entityType}] Received ${kaitenData.length} items.`);
 
-      console.log(`💾 [${entityType}] Upserting to DB...`);
+      if (kaitenData.length > 0 && ['cards', 'time_logs'].includes(entityType)) {
+        console.log(`🔍 [${entityType}] Sample raw data (first item):`, JSON.stringify(kaitenData[0]).substring(0, 500));
+      }
+
+      console.log(`💾 [${entityType}] Starting transformation and upsert to DB...`);
       // Выполняем upsert в базу
       const stats = await this.upsertToDatabase(entityType, kaitenData);
+      console.log(`✨ [${entityType}] Upsert completed successfully.`);
 
       // Обновляем метаданные синхронизации
       await this.updateSyncMetadata(entityType, incremental, stats.total);
@@ -295,27 +300,41 @@ export class SyncOrchestrator {
     };
 
     // Преобразуем данные в формат базы
+    console.log(`🔄 [${entityType}] Transforming ${data.length} items...`);
     const dbRows = await Promise.all(
       data.map(async (item) => await this.transformToDbFormat(entityType, item))
     );
+    console.log(`✓ [${entityType}] Transformation complete. Got ${dbRows.length} rows.`);
+
+    if (dbRows.length > 0 && ['cards', 'time_logs'].includes(entityType)) {
+      console.log(`🔍 [${entityType}] Sample transformed data (first item):`, JSON.stringify(dbRows[0]).substring(0, 500));
+    }
 
     // Upsert батчами
     const batchSize = 1000;
     for (let i = 0; i < dbRows.length; i += batchSize) {
       const batch = dbRows.slice(i, i + batchSize);
-      console.log(`💾 [${entityType}] Batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(dbRows.length/batchSize)} (${batch.length} rows)`);
+      const batchNum = Math.floor(i/batchSize) + 1;
+      const totalBatches = Math.ceil(dbRows.length/batchSize);
+      console.log(`💾 [${entityType}] Batch ${batchNum}/${totalBatches} (${batch.length} rows) - Starting upsert...`);
 
-      const { error } = await this.supabase
+      const { error, data: upsertResult } = await this.supabase
         .schema('kaiten')
         .from(entityType)
         .upsert(batch as any, { onConflict: 'id' });
 
       if (error) {
-        console.error(`❌ [${entityType}] Batch insert error:`, error);
+        console.error(`❌ [${entityType}] Batch ${batchNum} insert error:`, error);
+        console.error(`❌ [${entityType}] Error details:`, JSON.stringify(error, null, 2));
+        if (batch.length > 0) {
+          console.error(`❌ [${entityType}] First item in failed batch:`, JSON.stringify(batch[0]));
+        }
         throw error;
       }
+      console.log(`✓ [${entityType}] Batch ${batchNum}/${totalBatches} upserted successfully.`);
       stats.records_processed += batch.length;
     }
+    console.log(`🎉 [${entityType}] All batches completed. Total processed: ${stats.records_processed}`);
     return stats;
   }
 
