@@ -449,22 +449,21 @@ export class SyncOrchestrator {
           kaiten_updated_at: kaitenData.updated || null,
         };
       case 'time_logs': {
-        // Урезаем raw_payload, убирая вложенные сущности, чтобы не хранить огромные JSON
-        const {
-          card,
-          user,
-          owner,
-          author,
-          role,
-          tags,
-          board,
-          lane,
-          column,
-          parents,
-          children,
-          ...slimPayload
-        } = kaitenData;
-
+        // Урезаем raw_payload: копируем объект и удаляем вложенные тяжёлые поля,
+        // чтобы не хранить огромные JSON. Мы не деструктурируем их в переменные,
+        // чтобы линтер не ругался на неиспользуемые переменные.
+        const slimPayload: any = { ...kaitenData };
+        delete slimPayload.card;
+        delete slimPayload.user;
+        delete slimPayload.owner;
+        delete slimPayload.author;
+        delete slimPayload.role;
+        delete slimPayload.tags;
+        delete slimPayload.board;
+        delete slimPayload.lane;
+        delete slimPayload.column;
+        delete slimPayload.parents;
+        delete slimPayload.children;
         return {
           ...base,
           // Перезаписываем raw_payload на урезанную версию
