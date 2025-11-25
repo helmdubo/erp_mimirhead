@@ -289,6 +289,9 @@ export class SyncOrchestrator {
         .upsert(batch as any, { onConflict: 'id' });
       if (error) throw error;
       stats.records_processed += batch.length;
+	  if (entityType === 'cards') {
+        await this.syncBatchRelations(batch);
+      }
     }
     return stats;
   }
