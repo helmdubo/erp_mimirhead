@@ -51,6 +51,16 @@ async function fetchKaiten<T>(
     });
   }
 
+  // Детальное логирование для отладки
+  console.log("🔍 Kaiten API Request:", {
+    url: url.toString(),
+    endpoint,
+    hasToken: !!KAITEN_TOKEN,
+    tokenLength: KAITEN_TOKEN?.length,
+    tokenPrefix: KAITEN_TOKEN?.substring(0, 8) + "...",
+    baseUrl: KAITEN_URL,
+  });
+
   const response = await fetch(url.toString(), {
     headers: {
       Authorization: `Bearer ${KAITEN_TOKEN}`,
@@ -62,27 +72,33 @@ async function fetchKaiten<T>(
 
   if (!response.ok) {
     const errorText = await response.text();
+    console.error("❌ Kaiten API Error:", {
+      status: response.status,
+      statusText: response.statusText,
+      url: url.toString(),
+      errorBody: errorText,
+      headers: Object.fromEntries(response.headers.entries()),
+    });
     throw new Error(
       `Kaiten API Error ${response.status}: ${response.statusText}. ${errorText}`
     );
   }
 
+  console.log("✅ Kaiten API Success:", endpoint);
   return response.json();
 }
 
 /**
  * Универсальная функция для получения всех записей с пагинацией
- * ИСПРАВЛЕНО: Принимает ...restParams и корректно парсит items/time_logs
  */
 async function fetchAllPaginated<T>(
   endpoint: string,
-  options: PaginationParams & Record<string, any> = {}
+  options: PaginationParams = {}
 ): Promise<T[]> {
   const {
     limit = DEFAULT_PAGE_SIZE,
     offset: initialOffset = 0,
     updated_since,
-    ...restParams // 🔥 ЗАХВАТЫВАЕМ ДОПОЛНИТЕЛЬНЫЕ ПАРАМЕТРЫ (from, to и др.)
   } = options;
 
   const allItems: T[] = [];
@@ -97,7 +113,6 @@ async function fetchAllPaginated<T>(
     const params: Record<string, string | number> = {
       limit,
       offset: currentOffset,
-      ...restParams, // 🔥 ПЕРЕДАЕМ ИХ В ЗАПРОС
     };
 
     if (updated_since) {
@@ -105,21 +120,13 @@ async function fetchAllPaginated<T>(
     }
 
     try {
-      const response = await fetchKaiten<{ items?: T[]; data?: T[]; time_logs?: T[] }>(
+      const response = await fetchKaiten<{ items?: T[]; data?: T[] }>(
         endpoint,
         params
       );
 
-      // Kaiten может возвращать:
-      // 1. Массив объектов (напрямую)
-      // 2. { items: [...] } - стандартная пагинация
-      // 3. { time_logs: [...] } - специфика эндпоинта логов
-      const rawItems = 
-        (response as any).items || 
-        (response as any).data || 
-        (response as any).time_logs || // <--- Поддержка таймлогов
-        response;
-        
+      // Kaiten может возвращать либо { items: [] }, либо прямой массив
+      const rawItems = (response as any).items || (response as any).data || response;
       const items = Array.isArray(rawItems) ? rawItems : [];
 
       console.log(`  📄 Page ${pageCount}: offset=${currentOffset}, received=${items.length} items`);
@@ -150,7 +157,7 @@ async function fetchAllPaginated<T>(
     }
   }
 
-  console.log(`✅ Completed ${endpoint}: ${allItems.length} total items`);
+  console.log(`✅ Completed ${endpoint}: ${allItems.length} total items in ${pageCount} pages`);
   return allItems;
 }
 
@@ -158,6 +165,9 @@ async function fetchAllPaginated<T>(
  * Kaiten API Client
  */
 export const kaitenClient = {
+  /**
+   * Пространства (Spaces)
+   */
   async getSpaces(params?: PaginationParams): Promise<KaitenSpace[]> {
     return fetchAllPaginated<KaitenSpace>("spaces", params);
   },
@@ -166,20 +176,40 @@ export const kaitenClient = {
     return fetchKaiten<KaitenSpace>(`spaces/${id}`);
   },
 
-  // Доски (через перебор спейсов)
+  /**
+   * Доски (Boards)
+   * ВАЖНО: Kaiten не имеет глобального эндпоинта /api/latest/boards.
+   * Доски получаются через перебор всех пространств.
+   */
   async getBoards(): Promise<KaitenBoard[]> {
-    console.log("Fetching spaces for boards...");
+    console.log("📋 Fetching all spaces to discover boards...");
     const spaces = await this.getSpaces();
+    console.log(`✅ Found ${spaces.length} spaces. Fetching boards for each...`);
+
     const allBoards: KaitenBoard[] = [];
+
+    // Параллелизация с ограничением - по 5 пространств одновременно
     const chunkSize = 5;
-    
     for (let i = 0; i < spaces.length; i += chunkSize) {
-        const chunk = spaces.slice(i, i + chunkSize);
-        const results = await Promise.allSettled(chunk.map(s => fetchKaiten<KaitenBoard[]>(`spaces/${s.id}/boards`)));
-        results.forEach(r => {
-            if (r.status === 'fulfilled') allBoards.push(...r.value);
-        });
+      const chunk = spaces.slice(i, i + chunkSize);
+      const results = await Promise.allSettled(
+        chunk.map(async (space) => {
+          const spaceBoards = await this.getBoardsBySpace(space.id);
+          console.log(`  ↳ Space "${space.title}" (${space.id}): ${spaceBoards.length} boards`);
+          return spaceBoards;
+        })
+      );
+
+      results.forEach((result, idx) => {
+        if (result.status === 'fulfilled') {
+          allBoards.push(...result.value);
+        } else {
+          console.error(`❌ Failed to fetch boards for space ${chunk[idx].id}`, result.reason);
+        }
+      });
     }
+
+    console.log(`✅ Total boards fetched: ${allBoards.length}`);
     return allBoards;
   },
 
@@ -191,17 +221,39 @@ export const kaitenClient = {
     return fetchKaiten<KaitenBoard[]>(`spaces/${spaceId}/boards`);
   },
 
+  /**
+   * Колонки (Columns)
+   * ВАЖНО: Kaiten не имеет глобального /columns, получаем через доски.
+   */
   async getColumns(): Promise<KaitenColumn[]> {
+    console.log("📊 Fetching all boards to discover columns...");
     const boards = await this.getBoards();
+    console.log(`✅ Found ${boards.length} boards. Fetching columns for each...`);
+
     const allColumns: KaitenColumn[] = [];
+
+    // Параллелизация с ограничением - по 5 досок одновременно
     const chunkSize = 5;
     for (let i = 0; i < boards.length; i += chunkSize) {
-        const chunk = boards.slice(i, i + chunkSize);
-        const results = await Promise.allSettled(chunk.map(b => fetchKaiten<KaitenColumn[]>(`boards/${b.id}/columns`)));
-        results.forEach(r => {
-            if (r.status === 'fulfilled') allColumns.push(...r.value);
-        });
+      const chunk = boards.slice(i, i + chunkSize);
+      const results = await Promise.allSettled(
+        chunk.map(async (board) => {
+          const boardColumns = await this.getColumnsByBoard(board.id);
+          console.log(`  ↳ Board "${board.title}" (${board.id}): ${boardColumns.length} columns`);
+          return boardColumns;
+        })
+      );
+
+      results.forEach((result, idx) => {
+        if (result.status === 'fulfilled') {
+          allColumns.push(...result.value);
+        } else {
+          console.error(`❌ Failed to fetch columns for board ${chunk[idx].id}`, result.reason);
+        }
+      });
     }
+
+    console.log(`✅ Total columns fetched: ${allColumns.length}`);
     return allColumns;
   },
 
@@ -209,17 +261,39 @@ export const kaitenClient = {
     return fetchKaiten<KaitenColumn[]>(`boards/${boardId}/columns`);
   },
 
+  /**
+   * Дорожки (Lanes)
+   * ВАЖНО: Kaiten не имеет глобального /lanes, получаем через доски.
+   */
   async getLanes(): Promise<KaitenLane[]> {
+    console.log("🛤️ Fetching all boards to discover lanes...");
     const boards = await this.getBoards();
+    console.log(`✅ Found ${boards.length} boards. Fetching lanes for each...`);
+
     const allLanes: KaitenLane[] = [];
+
+    // Параллелизация с ограничением - по 5 досок одновременно
     const chunkSize = 5;
     for (let i = 0; i < boards.length; i += chunkSize) {
-        const chunk = boards.slice(i, i + chunkSize);
-        const results = await Promise.allSettled(chunk.map(b => fetchKaiten<KaitenLane[]>(`boards/${b.id}/lanes`)));
-        results.forEach(r => {
-            if (r.status === 'fulfilled') allLanes.push(...r.value);
-        });
+      const chunk = boards.slice(i, i + chunkSize);
+      const results = await Promise.allSettled(
+        chunk.map(async (board) => {
+          const boardLanes = await this.getLanesByBoard(board.id);
+          console.log(`  ↳ Board "${board.title}" (${board.id}): ${boardLanes.length} lanes`);
+          return boardLanes;
+        })
+      );
+
+      results.forEach((result, idx) => {
+        if (result.status === 'fulfilled') {
+          allLanes.push(...result.value);
+        } else {
+          console.error(`❌ Failed to fetch lanes for board ${chunk[idx].id}`, result.reason);
+        }
+      });
     }
+
+    console.log(`✅ Total lanes fetched: ${allLanes.length}`);
     return allLanes;
   },
 
@@ -227,6 +301,9 @@ export const kaitenClient = {
     return fetchKaiten<KaitenLane[]>(`boards/${boardId}/lanes`);
   },
 
+  /**
+   * Пользователи (Users)
+   */
   async getUsers(params?: PaginationParams): Promise<KaitenUser[]> {
     return fetchAllPaginated<KaitenUser>("company/users", params);
   },
@@ -235,18 +312,30 @@ export const kaitenClient = {
     return fetchKaiten<KaitenUser>(`users/${id}`);
   },
 
+  /**
+   * Типы карточек (Card Types)
+   */
   async getCardTypes(): Promise<KaitenCardType[]> {
     return fetchKaiten<KaitenCardType[]>("card-types");
   },
 
+  /**
+   * Теги (Tags)
+   */
   async getTags(): Promise<KaitenTag[]> {
     return fetchKaiten<KaitenTag[]>("tags");
   },
 
+  /**
+   * Определения свойств (Property Definitions)
+   */
   async getPropertyDefinitions(): Promise<KaitenPropertyDefinition[]> {
     return fetchKaiten<KaitenPropertyDefinition[]>("company/custom-properties");
   },
 
+  /**
+   * Карточки (Cards)
+   */
   async getCards(params?: PaginationParams): Promise<KaitenCard[]> {
     return fetchAllPaginated<KaitenCard>("cards", params);
   },
@@ -259,11 +348,9 @@ export const kaitenClient = {
     return fetchAllPaginated<KaitenCard>(`boards/${boardId}/cards`, params);
   },
 
-  // 👇 НОВЫЙ МЕТОД: Получение логов времени с обязательными from/to
-  async getTimeLogs(params?: PaginationParams & { from?: string; to?: string }): Promise<any[]> {
-    return fetchAllPaginated<any>("time-logs", params);
-  },
-
+  /**
+   * Получить карточки с фильтром по статусу
+   */
   async getCardsByStatus(
     status: "done" | "active" | "archived",
     params?: PaginationParams
@@ -274,6 +361,8 @@ export const kaitenClient = {
       archived: { archived: true },
     };
 
+    // Kaiten API может иметь свои фильтры, это пример
+    // Нужно уточнить документацию API
     return fetchAllPaginated<KaitenCard>("cards", {
       ...params,
       ...filterMap[status],
@@ -281,7 +370,13 @@ export const kaitenClient = {
   },
 };
 
+/**
+ * Утилиты для работы с Kaiten данными
+ */
 export const kaitenUtils = {
+  /**
+   * Вычисляет MD5 хэш для payload (для определения изменений)
+   */
   async calculatePayloadHash(payload: any): Promise<string> {
     const jsonString = JSON.stringify(payload, Object.keys(payload).sort());
     const msgBuffer = new TextEncoder().encode(jsonString);
@@ -290,6 +385,9 @@ export const kaitenUtils = {
     return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
   },
 
+  /**
+   * Определяет нужно ли обновлять запись (сравнивая хэши)
+   */
   needsUpdate(existingHash: string | null, newHash: string): boolean {
     return existingHash !== newHash;
   },
