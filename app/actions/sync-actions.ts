@@ -43,11 +43,30 @@ export async function getSyncStatus(): Promise<
 
 export async function syncAllData(): Promise<ActionResult> {
   try {
-    await syncOrchestrator.sync({ resolveDependencies: true, incremental: false });
-    return { status: "ok", message: "Полная синхронизация успешно завершена" };
+    // Явно перечисляем сущности БЕЗ time_logs
+    // Это гарантирует, что мы уложимся в 60 секунд Vercel
+    const entities: any[] = [
+      'spaces', 'users', 'card_types', 'property_definitions', 'tags',
+      'boards', 'columns', 'lanes', 'cards'
+    ];
+
+    await syncOrchestrator.sync({
+      entityTypes: entities, 
+      resolveDependencies: true,
+      incremental: false,
+    });
+
+    return {
+      status: "ok",
+      message: "Структура и карточки обновлены. Таймшиты загружайте отдельно.",
+    };
   } catch (error: any) {
     console.error("Sync All Error:", error);
-    return { status: "error", message: "Ошибка полной синхронизации", error: error.message };
+    return {
+      status: "error",
+      message: "Ошибка полной синхронизации",
+      error: error.message || "Unknown error",
+    };
   }
 }
 
