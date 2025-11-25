@@ -164,12 +164,6 @@ export class SyncOrchestrator {
   /**
    * Синхронизация одной сущности
    */
-  /**
-   * Синхронизация одной сущности. Позволяет передать настройки для инкрементального режима
-   * и диапазона дат тайм‑логов. В opts ожидаются:
-   *  - incremental: boolean – включить инкрементальный режим
-   *  - timeLogsFrom/timeLogsTo: строки «YYYY-MM-DD» – диапазон выгрузки для time_logs
-   */
   private async syncEntity(
     entityType: EntityType,
     opts: { incremental: boolean; timeLogsFrom?: string; timeLogsTo?: string }
@@ -189,12 +183,6 @@ export class SyncOrchestrator {
       // Подготавливаем параметры для запроса данных
       const fetchParams: any = {};
       if (entityType === 'time_logs') {
-        /**
-         * Для time_logs API Kaiten требует два параметра: from и to. Даем приоритет
-         * явно переданным opts.timeLogsFrom/timeLogsTo. Если их нет и идём инкрементально,
-         * конвертируем updatedSince (ISO) в YYYY-MM-DD и используем как from.
-         * Если дата окончания не указана – используем текущую дату.
-         */
         const fromParam =
           timeLogsFrom ||
           (updatedSince
@@ -211,7 +199,6 @@ export class SyncOrchestrator {
         if (fromParam) fetchParams.from = fromParam;
         if (toParam) fetchParams.to = toParam;
       } else {
-        // Для остальных сущностей используем updated_since в инкрементальном режиме
         if (updatedSince) {
           fetchParams.updated_since = updatedSince;
         }
@@ -224,10 +211,6 @@ export class SyncOrchestrator {
       const kaitenData = await this.fetchFromKaiten(entityType, fetchParams);
       console.log(`📦 [${entityType}] Received ${kaitenData.length} items.`);
       await debugLogger.info(`Received ${kaitenData.length} ${entityType} items`, entityType, { count: kaitenData.length });
-
-      if (kaitenData.length > 0 && ['cards', 'time_logs'].includes(entityType)) {
-        console.log(`🔍 [${entityType}] Sample raw data (first item):`, JSON.stringify(kaitenData[0]).substring(0, 500));
-      }
 
       console.log(`💾 [${entityType}] Starting transformation and upsert to DB...`);
       await debugLogger.info(`Starting upsert ${kaitenData.length} ${entityType} to DB`, entityType);
@@ -258,7 +241,6 @@ export class SyncOrchestrator {
         stack: error.stack
       });
       const duration = Date.now() - startTime;
-      // Пытаемся записать ошибку в БД, но если это тайм-аут, это может не успеть выполниться
       await this.failSyncLog(logId, error.message, duration);
       return {
         entity_type: entityType,
@@ -275,18 +257,15 @@ export class SyncOrchestrator {
 
   /**
    * Обращается к Kaiten API в зависимости от типа сущности
-   */
-  /**
-   * Обращается к Kaiten API в зависимости от типа сущности
-   * Увеличиваем лимит до 1000 для тяжелых сущностей, чтобы уменьшить кол-во запросов
+   * ВАЖНО: Убран limit: 1000, так как API Kaiten ограничивает ответ 100 записями,
+   * и это ломает логику пагинации (received < requested).
    */
   private async fetchFromKaiten(entityType: EntityType, params?: any): Promise<any[]> {
-    // Базовые параметры, если limit не передан
-    const baseParams = { ...params };
+    const baseParams = { ...params }; // limit: 100 (по умолчанию в client.ts)
     
     switch (entityType) {
       case 'spaces': return kaitenClient.getSpaces(baseParams);
-      case 'boards': return kaitenClient.getBoards(); // Boards грузятся через spaces, там своя логика
+      case 'boards': return kaitenClient.getBoards();
       case 'columns': return kaitenClient.getColumns();
       case 'lanes': return kaitenClient.getLanes();
       case 'users': return kaitenClient.getUsers(baseParams);
@@ -294,11 +273,10 @@ export class SyncOrchestrator {
       case 'property_definitions': return kaitenClient.getPropertyDefinitions();
       case 'tags': return kaitenClient.getTags();
       
-      // ОПТИМИЗАЦИЯ: Грузим по 1000 записей за раз
       case 'time_logs': 
-        return kaitenClient.getTimeLogs({ ...baseParams, limit: 1000 });
+        return kaitenClient.getTimeLogs(baseParams);
       case 'cards': 
-        return kaitenClient.getCards({ ...baseParams, limit: 1000 });
+        return kaitenClient.getCards(baseParams);
         
       default:
         throw new Error(`Unknown entity type: ${entityType}`);
@@ -332,10 +310,6 @@ export class SyncOrchestrator {
     );
     console.log(`✓ [${entityType}] Transformation complete. Got ${dbRows.length} rows.`);
 
-    if (dbRows.length > 0 && ['cards', 'time_logs'].includes(entityType)) {
-      console.log(`🔍 [${entityType}] Sample transformed data (first item):`, JSON.stringify(dbRows[0]).substring(0, 500));
-    }
-
     // Upsert батчами
     const batchSize = 1000;
     for (let i = 0; i < dbRows.length; i += batchSize) {
@@ -351,10 +325,6 @@ export class SyncOrchestrator {
 
       if (error) {
         console.error(`❌ [${entityType}] Batch ${batchNum} insert error:`, error);
-        console.error(`❌ [${entityType}] Error details:`, JSON.stringify(error, null, 2));
-        if (batch.length > 0) {
-          console.error(`❌ [${entityType}] First item in failed batch:`, JSON.stringify(batch[0]));
-        }
         await debugLogger.error(`Batch ${batchNum} upsert failed for ${entityType}`, entityType, {
           error: JSON.stringify(error),
           batchSize: batch.length,
@@ -371,7 +341,6 @@ export class SyncOrchestrator {
 
   /**
    * Преобразует полученные данные из Kaiten в формат базы Supabase.
-   * Также вычисляет хеш payload и подготавливает сырые данные.
    */
   private async transformToDbFormat(entityType: EntityType, kaitenData: any): Promise<any> {
     const payloadHash = await kaitenUtils.calculatePayloadHash(kaitenData);
@@ -385,13 +354,11 @@ export class SyncOrchestrator {
 
     switch (entityType) {
       case 'cards': {
-        // Извлечение space_id (может быть вложено в board.spaces)
         let extractedSpaceId = kaitenData.space_id;
         if (!extractedSpaceId && kaitenData.board?.spaces?.length > 0) {
           extractedSpaceId = kaitenData.board.spaces[0].id;
         }
 
-        // Извлечение родителей и детей (id может быть в *_ids или в массивах объектов)
         let finalParentIds = kaitenData.parents_ids || [];
         let finalChildIds = kaitenData.children_ids || [];
         if (kaitenData.parents && !finalParentIds.length) {
@@ -401,7 +368,6 @@ export class SyncOrchestrator {
           finalChildIds = kaitenData.children.map((c: any) => c.id);
         }
 
-        // Извлечение участников
         const membersIds = Array.isArray(kaitenData.members)
           ? kaitenData.members.map((m: any) => m.id)
           : [];
@@ -525,9 +491,6 @@ export class SyncOrchestrator {
           kaiten_updated_at: kaitenData.updated || null,
         };
       case 'time_logs': {
-        // Урезаем raw_payload: копируем объект и удаляем вложенные тяжёлые поля,
-        // чтобы не хранить огромные JSON. Мы не деструктурируем их в переменные,
-        // чтобы линтер не ругался на неиспользуемые переменные.
         const slimPayload: any = { ...kaitenData };
         delete slimPayload.card;
         delete slimPayload.user;
@@ -542,7 +505,6 @@ export class SyncOrchestrator {
         delete slimPayload.children;
         return {
           ...base,
-          // Перезаписываем raw_payload на урезанную версию
           raw_payload: slimPayload,
           card_id: kaitenData.card_id ?? kaitenData.card?.id ?? null,
           user_id:
@@ -564,7 +526,6 @@ export class SyncOrchestrator {
         };
       }
       default:
-        // Если нет специализированного маппинга, возвращаем базовые поля
         console.warn(`No transformer for entity type ${entityType}`);
         return { ...base };
     }
@@ -632,7 +593,6 @@ export class SyncOrchestrator {
     } else {
       record.last_full_sync_at = new Date().toISOString();
     }
-    // Используем upsert, чтобы автоматически создать строку если её нет
     const { error } = await this.supabase
       .from('sync_metadata')
       .upsert(record, { onConflict: 'entity_type' });
@@ -666,7 +626,6 @@ export class SyncOrchestrator {
   private async completeSyncLog(logId: number, stats: any, durationMs: number): Promise<void> {
     if (!this.supabase || !logId) return;
 
-    // Убираем 'total' из stats, т.к. в sync_logs нет такой колонки
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { total, ...statsWithoutTotal } = stats;
 
@@ -695,7 +654,7 @@ export class SyncOrchestrator {
       .from('sync_logs')
       .update({
         status: 'failed',
-        error_message: errorMessage?.substring(0, 1000), // Обрезаем, чтобы не переполнить
+        error_message: errorMessage?.substring(0, 1000),
         completed_at: new Date().toISOString(),
         duration_ms: durationMs,
       })
@@ -707,7 +666,4 @@ export class SyncOrchestrator {
   }
 }
 
-/**
- * Экспортируем синглтон для удобства
- */
 export const syncOrchestrator = new SyncOrchestrator();
