@@ -9,6 +9,15 @@ export const dynamic = "force-dynamic";
 export default async function DebugLogsPage() {
   const supabase = getServiceSupabaseClient();
 
+  if (!supabase) {
+    return (
+      <div className="p-8">
+        <h1 className="text-2xl font-bold text-red-600 mb-4">Ошибка</h1>
+        <p>Supabase client не инициализирован</p>
+      </div>
+    );
+  }
+
   const { data: logs, error } = await supabase
     .from('sync_debug_logs')
     .select('*')
