@@ -7,7 +7,6 @@ import {
   syncIncrementalData,
   syncSpecificEntities,
   syncTimeLogsRange,
-  syncForceEntities,
   syncTimeLogsYearParallel,
 } from "@/app/actions/sync-actions";
 
@@ -29,7 +28,7 @@ function addDays(d: Date, days: number): Date {
 }
 
 export function SyncControls({ onSyncComplete }: SyncControlsProps) {
-  const router = useRouter(); // Используем роутер для обновления
+  const router = useRouter();
   const [syncing, setSyncing] = useState(false);
   const [status, setStatus] = useState<string>("");
   const [results, setResults] = useState<any[] | null>(null);
@@ -42,7 +41,6 @@ export function SyncControls({ onSyncComplete }: SyncControlsProps) {
   const [timeLogsTo, setTimeLogsTo] = useState<string>(today);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
 
-  // Общая обертка для обработки результата
   const runAction = async (actionFn: () => Promise<any>, successMsg: string) => {
     setSyncing(true);
     setStatus("Выполняется...");
@@ -50,7 +48,6 @@ export function SyncControls({ onSyncComplete }: SyncControlsProps) {
     setResults(null);
 
     try {
-      // Ждем выполнения на сервере (теперь там await)
       const result = await actionFn();
 
       if (result.status === "error") {
@@ -59,7 +56,6 @@ export function SyncControls({ onSyncComplete }: SyncControlsProps) {
       } else {
         setStatus(result.message || successMsg);
         setResults(result.results || []);
-        // Мгновенно обновляем данные на странице
         router.refresh();
         if (onSyncComplete) onSyncComplete();
       }
@@ -113,7 +109,7 @@ export function SyncControls({ onSyncComplete }: SyncControlsProps) {
         </div>
       </div>
 
-      {/* Таймшиты (Диапазон) */}
+      {/* Таймшиты */}
       <div className="rounded-lg border border-slate-200 bg-white p-4">
         <h3 className="mb-3 font-semibold text-slate-700">
           Таймшиты (без зависимостей)
@@ -182,6 +178,44 @@ export function SyncControls({ onSyncComplete }: SyncControlsProps) {
             <p className="font-medium">{status}</p>
           </div>
           {error && <p className="mt-1 text-sm">{error}</p>}
+        </div>
+      )}
+
+      {/* Результаты (исправляет ошибку 'results assigned but never used') */}
+      {results && results.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="font-semibold text-slate-700">Детализация:</h3>
+          <div className="grid gap-2">
+            {results.map((result, idx) => (
+              <div
+                key={idx}
+                className={`flex items-center justify-between rounded-lg border p-3 ${
+                  result.success
+                    ? "border-green-200 bg-green-50"
+                    : "border-red-200 bg-red-50"
+                }`}
+              >
+                <div>
+                  <p className="font-medium">
+                    {result.success ? "✅" : "❌"} {result.entity_type || (result.month ? `Месяц ${result.month}` : "Операция")}
+                  </p>
+                  {result.error && (
+                    <p className="text-sm text-red-600">{result.error}</p>
+                  )}
+                </div>
+                <div className="text-right text-sm">
+                  {result.records_processed !== undefined && (
+                    <p>Записей: {result.records_processed}</p>
+                  )}
+                  {result.duration_ms && (
+                    <p className="text-slate-500">
+                      {(result.duration_ms / 1000).toFixed(1)}с
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
