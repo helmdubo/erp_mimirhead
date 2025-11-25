@@ -318,7 +318,7 @@ export class SyncOrchestrator {
       const totalBatches = Math.ceil(dbRows.length/batchSize);
       console.log(`💾 [${entityType}] Batch ${batchNum}/${totalBatches} (${batch.length} rows) - Starting upsert...`);
 
-      const { error, data: upsertResult } = await this.supabase
+      const { error } = await this.supabase
         .schema('kaiten')
         .from(entityType)
         .upsert(batch as any, { onConflict: 'id' });
