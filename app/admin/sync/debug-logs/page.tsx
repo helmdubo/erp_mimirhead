@@ -18,7 +18,6 @@ export default async function DebugLogsPage() {
     );
   }
 
-  // @ts-expect-error - sync_debug_logs table exists but not in generated types yet
   const { data: logs, error } = await supabase
     .from('sync_debug_logs')
     .select('*')

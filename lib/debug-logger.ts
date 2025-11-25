@@ -20,7 +20,6 @@ class DebugLogger {
     if (!this.enabled || !this.supabase) return;
 
     try {
-      // @ts-expect-error - sync_debug_logs table exists but not in generated types yet
       await this.supabase
         .from('sync_debug_logs')
         .insert({
@@ -56,7 +55,6 @@ class DebugLogger {
   async getRecentLogs(limit = 100): Promise<any[]> {
     if (!this.supabase) return [];
 
-    // @ts-expect-error - sync_debug_logs table exists but not in generated types yet
     const { data, error } = await this.supabase
       .from('sync_debug_logs')
       .select('*')
