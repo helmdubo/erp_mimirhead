@@ -1,14 +1,30 @@
 /**
- * Sync Orchestrator (SIMPLIFIED & ROBUST)
- * Упрощенная версия: всё храним в массивах внутри карточки.
- * Максимальная надежность извлечения данных.
+ * Sync Orchestrator
+ * Синхронизация данных из Kaiten в Supabase
+ * Поддерживает инкрементальный синк и обработку тайм-логов
  */
 
 import { getServiceSupabaseClient } from "@/lib/supabase/server";
 import { kaitenClient, kaitenUtils } from "./client";
 
-type EntityType = 'spaces' | 'boards' | 'columns' | 'lanes' | 'users' | 'card_types' | 'property_definitions' | 'tags' | 'cards' | 'time_logs';
+/**
+ * Тип сущностей, которые можем синхронизировать
+ */
+export type EntityType =
+  | 'spaces'
+  | 'boards'
+  | 'columns'
+  | 'lanes'
+  | 'users'
+  | 'card_types'
+  | 'property_definitions'
+  | 'tags'
+  | 'cards'
+  | 'time_logs';
 
+/**
+ * Граф зависимостей: какие сущности должны быть синхронизированы до текущей
+ */
 const DEPENDENCY_GRAPH: Record<EntityType, EntityType[]> = {
   spaces: [],
   users: [],
@@ -18,11 +34,14 @@ const DEPENDENCY_GRAPH: Record<EntityType, EntityType[]> = {
   boards: ['spaces', 'users'],
   columns: ['boards'],
   lanes: ['boards'],
-  cards: ['boards', 'columns', 'lanes', 'users', 'card_types'], // Убрали tags из зависимостей
+  cards: ['boards', 'columns', 'lanes', 'users', 'card_types'],
   time_logs: ['cards', 'users'],
 };
 
-interface SyncResult {
+/**
+ * Результат синхронизации одной сущности
+ */
+export interface SyncResult {
   entity_type: EntityType;
   success: boolean;
   records_processed: number;
@@ -33,15 +52,25 @@ interface SyncResult {
   duration_ms: number;
 }
 
-interface SyncOptions {
+/**
+ * Опции синхронизации
+ */
+export interface SyncOptions {
   entityTypes?: EntityType[];
   incremental?: boolean;
   resolveDependencies?: boolean;
 }
 
+/**
+ * Основной класс для синхронизации данных
+ */
 export class SyncOrchestrator {
   private supabase = getServiceSupabaseClient();
 
+  /**
+   * Запускает синхронизацию. Можно указать подмножество сущностей,
+   * использовать инкрементальный режим и автоматическое разрешение зависимостей.
+   */
   async sync(options: SyncOptions = {}): Promise<SyncResult[]> {
     const {
       entityTypes,
@@ -49,13 +78,19 @@ export class SyncOrchestrator {
       resolveDependencies = true,
     } = options;
 
-    if (!this.supabase) throw new Error("Supabase client not available");
+    if (!this.supabase) {
+      throw new Error("Supabase client not available");
+    }
 
-    let entitiesToSync = entityTypes || Object.keys(DEPENDENCY_GRAPH) as EntityType[];
+    // Определяем, какие сущности будем синхронизировать
+    let entitiesToSync: EntityType[] = entityTypes || (Object.keys(DEPENDENCY_GRAPH) as EntityType[]);
+
+    // Подключаем зависимости, если нужно
     if (resolveDependencies) {
       entitiesToSync = this.resolveDependencies(entitiesToSync);
     }
 
+    // Сортируем по зависимостям
     const sortedEntities = this.topologicalSort(entitiesToSync);
     console.log(`Starting sync for entities:`, sortedEntities.join(', '));
 
@@ -65,10 +100,10 @@ export class SyncOrchestrator {
       try {
         const result = await this.syncEntity(entityType, incremental);
         results.push(result);
-        // Критические ошибки структуры
+        // Останавливаем синхронизацию при критической ошибке в базовых сущностях
         if (!result.success && ['spaces', 'boards', 'columns', 'lanes'].includes(entityType)) {
-            console.error(`⛔ Critical entity ${entityType} failed. Stopping sync to prevent data corruption.`);
-            break;
+          console.error(`⛔ Critical entity ${entityType} failed. Stopping sync to prevent data corruption.`);
+          break;
         }
       } catch (error: any) {
         results.push({
@@ -86,22 +121,52 @@ export class SyncOrchestrator {
     return results;
   }
 
+  /**
+   * Синхронизация одной сущности
+   */
   private async syncEntity(entityType: EntityType, incremental: boolean): Promise<SyncResult> {
     const startTime = Date.now();
     const logId = await this.createSyncLog(entityType, incremental ? 'incremental' : 'full');
 
     try {
+      // Получаем время последней инкрементальной синхронизации
       const metadata = await this.getSyncMetadata(entityType);
-      const updatedSince = incremental && metadata?.last_incremental_sync_at
+      const updatedSince: string | undefined = incremental && metadata?.last_incremental_sync_at
         ? metadata.last_incremental_sync_at
         : undefined;
 
-      // 1. Получаем данные
-      const kaitenData = await this.fetchFromKaiten(entityType, { updated_since: updatedSince });
-      
-      // 2. Пишем в базу (сразу с правильными полями)
+      // Подготавливаем параметры для запроса данных
+      let fetchParams: any = {};
+      if (entityType === 'time_logs') {
+        // Для логов времени используем from=YYYY-MM-DD вместо updated_since
+        if (updatedSince) {
+          // Превращаем ISO-тimestamp в дату в формате YYYY-MM-DD
+          let fromDate: string | undefined;
+          const d = new Date(updatedSince);
+          if (!isNaN(d.getTime())) {
+            fromDate = d.toISOString().slice(0, 10);
+          } else {
+            // В случае некорректного ISO пытаемся взять часть до 'T'
+            const parts = updatedSince.split('T');
+            if (parts.length > 0) fromDate = parts[0];
+          }
+          if (fromDate) {
+            fetchParams.from = fromDate;
+          }
+        }
+      } else {
+        if (updatedSince) {
+          fetchParams.updated_since = updatedSince;
+        }
+      }
+
+      // Запрашиваем данные из Kaiten
+      const kaitenData = await this.fetchFromKaiten(entityType, fetchParams);
+
+      // Выполняем upsert в базу
       const stats = await this.upsertToDatabase(entityType, kaitenData);
 
+      // Обновляем метаданные синхронизации
       await this.updateSyncMetadata(entityType, incremental, stats.total);
       const duration = Date.now() - startTime;
       await this.completeSyncLog(logId, stats, duration);
@@ -128,23 +193,29 @@ export class SyncOrchestrator {
     }
   }
 
+  /**
+   * Обращается к Kaiten API в зависимости от типа сущности
+   */
   private async fetchFromKaiten(entityType: EntityType, params?: any): Promise<any[]> {
     switch (entityType) {
       case 'spaces': return kaitenClient.getSpaces(params);
-      case 'boards': return kaitenClient.getBoards(); 
+      case 'boards': return kaitenClient.getBoards();
       case 'columns': return kaitenClient.getColumns();
       case 'lanes': return kaitenClient.getLanes();
       case 'users': return kaitenClient.getUsers(params);
       case 'card_types': return kaitenClient.getCardTypes();
       case 'property_definitions': return kaitenClient.getPropertyDefinitions();
       case 'tags': return kaitenClient.getTags();
-      case 'time_logs':
-        return kaitenClient.getTimeLogs(params);
+      case 'time_logs': return kaitenClient.getTimeLogs(params);
       case 'cards': return kaitenClient.getCards(params);
-      default: throw new Error(`Unknown entity type: ${entityType}`);
+      default:
+        throw new Error(`Unknown entity type: ${entityType}`);
     }
   }
 
+  /**
+   * Выполняет пакетный upsert в Supabase
+   */
   private async upsertToDatabase(entityType: EntityType, data: any[]): Promise<{
     total: number;
     records_processed: number;
@@ -152,7 +223,7 @@ export class SyncOrchestrator {
     records_updated: number;
     records_skipped: number;
   }> {
-    if (!this.supabase) throw new Error("Supabase not available");
+    if (!this.supabase) throw new Error('Supabase not available');
 
     const stats = {
       total: data.length,
@@ -162,12 +233,12 @@ export class SyncOrchestrator {
       records_skipped: 0,
     };
 
-    // 1. Трансформация (извлекаем ID участников, детей, родителей здесь)
+    // Преобразуем данные в формат базы
     const dbRows = await Promise.all(
       data.map(async (item) => await this.transformToDbFormat(entityType, item))
     );
 
-    // 2. Batch upsert
+    // Upsert батчами
     const batchSize = 100;
     for (let i = 0; i < dbRows.length; i += batchSize) {
       const batch = dbRows.slice(i, i + batchSize);
@@ -175,19 +246,19 @@ export class SyncOrchestrator {
         .schema('kaiten')
         .from(entityType)
         .upsert(batch as any, { onConflict: 'id' });
-
       if (error) throw error;
       stats.records_processed += batch.length;
     }
-    
-    // Мы убрали syncCardTags и syncCardMembers — теперь всё делает upsert выше
-
     return stats;
   }
 
+  /**
+   * Преобразует полученные данные из Kaiten в формат базы Supabase.
+   * Также вычисляет хеш payload и подготавливает сырые данные.
+   */
   private async transformToDbFormat(entityType: EntityType, kaitenData: any): Promise<any> {
     const payloadHash = await kaitenUtils.calculatePayloadHash(kaitenData);
-    const base = {
+    const base: any = {
       id: kaitenData.id,
       uid: kaitenData.uid || null,
       synced_at: new Date().toISOString(),
@@ -196,31 +267,27 @@ export class SyncOrchestrator {
     };
 
     switch (entityType) {
-      case 'cards':
-        // 1. Space ID Fallback
+      case 'cards': {
+        // Извлечение space_id (может быть вложено в board.spaces)
         let extractedSpaceId = kaitenData.space_id;
         if (!extractedSpaceId && kaitenData.board?.spaces?.length > 0) {
-           extractedSpaceId = kaitenData.board.spaces[0].id;
+          extractedSpaceId = kaitenData.board.spaces[0].id;
         }
 
-        // 2. Parents & Children extraction (Универсальная логика)
-        // Kaiten может присылать id в поле *_ids или в массиве объектов
+        // Извлечение родителей и детей (id может быть в *_ids или в массивах объектов)
         let finalParentIds = kaitenData.parents_ids;
         let finalChildIds = kaitenData.children_ids;
-
-        // Если массив пуст или null, но есть массив объектов - берем из объектов
         if ((!finalParentIds || finalParentIds.length === 0) && Array.isArray(kaitenData.parents)) {
-            finalParentIds = kaitenData.parents.map((p: any) => p.id);
+          finalParentIds = kaitenData.parents.map((p: any) => p.id);
         }
         if ((!finalChildIds || finalChildIds.length === 0) && Array.isArray(kaitenData.children)) {
-            finalChildIds = kaitenData.children.map((c: any) => c.id);
+          finalChildIds = kaitenData.children.map((c: any) => c.id);
         }
 
-        // 3. Members extraction (Участники)
-        // Берем массив ID из объектов участников
-        const membersIds = Array.isArray(kaitenData.members) 
-            ? kaitenData.members.map((m: any) => m.id) 
-            : [];
+        // Извлечение участников
+        const membersIds = Array.isArray(kaitenData.members)
+          ? kaitenData.members.map((m: any) => m.id)
+          : [];
 
         return {
           ...base,
@@ -244,49 +311,152 @@ export class SyncOrchestrator {
           completed_at: kaitenData.completed_at ? new Date(kaitenData.completed_at).toISOString() : null,
           properties: kaitenData.properties || {},
           tags_cache: kaitenData.tags || [],
-          
-          // 🔥 ЗАПОЛНЯЕМ МАССИВЫ ID
           parents_ids: finalParentIds || [],
           children_ids: finalChildIds || [],
-          members_ids: membersIds, 
+          members_ids: membersIds,
           estimate_workload: kaitenData.estimate_workload || 0,
-
           kaiten_created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
           kaiten_updated_at: kaitenData.updated ? new Date(kaitenData.updated).toISOString() : null,
         };
+      }
 
-      // ... Для остальных типов используем стандартный маппинг (копируем из предыдущего файла)
-      case 'spaces': return { ...base, title: kaitenData.title, company_id: kaitenData.company_id, owner_user_id: kaitenData.owner_user_id, archived: kaitenData.archived, sort_order: kaitenData.sort_order, kaiten_created_at: kaitenData.created, kaiten_updated_at: kaitenData.updated };
-      case 'boards': return { ...base, space_id: kaitenData.space_id, title: kaitenData.title, description: kaitenData.description, board_type: kaitenData.board_type, archived: kaitenData.archived, sort_order: kaitenData.sort_order, kaiten_created_at: kaitenData.created, kaiten_updated_at: kaitenData.updated };
-      case 'columns': return { ...base, title: kaitenData.title, board_id: kaitenData.board_id, column_type: kaitenData.type, sort_order: kaitenData.sort_order || kaitenData.order, wip_limit: kaitenData.wip_limit, archived: kaitenData.archived, kaiten_created_at: kaitenData.created, kaiten_updated_at: kaitenData.updated };
-      case 'lanes': return { ...base, title: kaitenData.title, board_id: kaitenData.board_id, sort_order: kaitenData.sort_order || kaitenData.order, archived: kaitenData.archived, kaiten_created_at: kaitenData.created, kaiten_updated_at: kaitenData.updated };
-      case 'users': return { ...base, full_name: kaitenData.full_name, email: kaitenData.email, username: kaitenData.username, timezone: kaitenData.timezone, role: kaitenData.role, is_admin: kaitenData.is_admin, take_licence: kaitenData.take_licence, apps_permissions: kaitenData.apps_permissions, locked: kaitenData.locked, last_request_date: kaitenData.last_request_date, kaiten_created_at: kaitenData.created, kaiten_updated_at: kaitenData.updated };
-      case 'card_types': return { ...base, name: kaitenData.name, icon_url: kaitenData.icon_url, kaiten_created_at: kaitenData.created, kaiten_updated_at: kaitenData.updated };
-      case 'tags': return { ...base, name: kaitenData.name, color: kaitenData.color, group_name: kaitenData.group_name, kaiten_created_at: kaitenData.created, kaiten_updated_at: kaitenData.updated };
-      case 'property_definitions': return { ...base, name: kaitenData.name || 'Untitled', field_type: kaitenData.type, select_options: kaitenData.select_options, kaiten_created_at: kaitenData.created, kaiten_updated_at: kaitenData.updated };
-      case 'time_logs':
+      case 'spaces':
         return {
           ...base,
-          // Kaiten может возвращать card_id, user_id или вложенные объекты card: {id: ...}
-          card_id: kaitenData.card_id || kaitenData.card?.id,
-          user_id: kaitenData.user_id || kaitenData.author?.id || kaitenData.user?.id, 
-          
-          time_spent_minutes: kaitenData.time_spent || 0,
-          date: kaitenData.date, // Обычно строка "YYYY-MM-DD"
-          comment: kaitenData.comment,
-          role_id: kaitenData.role_id,
-          
+          title: kaitenData.title,
+          company_id: kaitenData.company_id || null,
+          owner_user_id: kaitenData.owner_user_id || null,
+          archived: kaitenData.archived || false,
+          sort_order: kaitenData.sort_order || null,
+          kaiten_created_at: kaitenData.created ? kaitenData.created : null,
+          kaiten_updated_at: kaitenData.updated ? kaitenData.updated : null,
+        };
+      case 'boards':
+        return {
+          ...base,
+          space_id: kaitenData.space_id,
+          title: kaitenData.title,
+          description: kaitenData.description || null,
+          board_type: kaitenData.board_type || null,
+          archived: kaitenData.archived || false,
+          sort_order: kaitenData.sort_order || null,
+          kaiten_created_at: kaitenData.created ? kaitenData.created : null,
+          kaiten_updated_at: kaitenData.updated ? kaitenData.updated : null,
+        };
+      case 'columns':
+        return {
+          ...base,
+          title: kaitenData.title,
+          board_id: kaitenData.board_id,
+          column_type: kaitenData.type,
+          sort_order: kaitenData.sort_order ?? kaitenData.order ?? null,
+          wip_limit: kaitenData.wip_limit || null,
+          archived: kaitenData.archived || false,
+          kaiten_created_at: kaitenData.created || null,
+          kaiten_updated_at: kaitenData.updated || null,
+        };
+      case 'lanes':
+        return {
+          ...base,
+          title: kaitenData.title,
+          board_id: kaitenData.board_id,
+          sort_order: kaitenData.sort_order ?? kaitenData.order ?? null,
+          archived: kaitenData.archived || false,
+          kaiten_created_at: kaitenData.created || null,
+          kaiten_updated_at: kaitenData.updated || null,
+        };
+      case 'users':
+        return {
+          ...base,
+          full_name: kaitenData.full_name || null,
+          email: kaitenData.email || null,
+          username: kaitenData.username || null,
+          timezone: kaitenData.timezone || null,
+          role: kaitenData.role || null,
+          is_admin: kaitenData.is_admin || false,
+          take_licence: kaitenData.take_licence || null,
+          apps_permissions: kaitenData.apps_permissions || null,
+          locked: kaitenData.locked || null,
+          last_request_date: kaitenData.last_request_date || null,
+          kaiten_created_at: kaitenData.created || null,
+          kaiten_updated_at: kaitenData.updated || null,
+        };
+      case 'card_types':
+        return {
+          ...base,
+          name: kaitenData.name,
+          icon_url: kaitenData.icon_url || null,
+          kaiten_created_at: kaitenData.created || null,
+          kaiten_updated_at: kaitenData.updated || null,
+        };
+      case 'tags':
+        return {
+          ...base,
+          name: kaitenData.name,
+          color: kaitenData.color || null,
+          group_name: kaitenData.group_name || null,
+          kaiten_created_at: kaitenData.created || null,
+          kaiten_updated_at: kaitenData.updated || null,
+        };
+      case 'property_definitions':
+        return {
+          ...base,
+          name: kaitenData.name || 'Untitled',
+          field_type: kaitenData.type || null,
+          select_options: kaitenData.select_options || null,
+          kaiten_created_at: kaitenData.created || null,
+          kaiten_updated_at: kaitenData.updated || null,
+        };
+      case 'time_logs': {
+        // Урезаем raw_payload, убирая вложенные сущности, чтобы не хранить огромные JSON
+        const {
+          card,
+          user,
+          owner,
+          author,
+          role,
+          tags,
+          board,
+          lane,
+          column,
+          parents,
+          children,
+          ...slimPayload
+        } = kaitenData;
+
+        return {
+          ...base,
+          // Перезаписываем raw_payload на урезанную версию
+          raw_payload: slimPayload,
+          card_id: kaitenData.card_id ?? kaitenData.card?.id ?? null,
+          user_id:
+            kaitenData.user_id ??
+            kaitenData.author_id ??
+            (kaitenData.author && kaitenData.author.id) ??
+            (kaitenData.user && kaitenData.user.id) ??
+            null,
+          role_id:
+            kaitenData.role_id ??
+            (kaitenData.role && kaitenData.role.id) ??
+            null,
+          time_spent_minutes:
+            kaitenData.time_spent_minutes ?? kaitenData.time_spent ?? 0,
+          date: kaitenData.date ?? kaitenData.for_date ?? null,
+          comment: kaitenData.comment || null,
           created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
           updated_at: kaitenData.updated ? new Date(kaitenData.updated).toISOString() : null,
         };
-
+      }
       default:
+        // Если нет специализированного маппинга, возвращаем базовые поля
         console.warn(`No transformer for entity type ${entityType}`);
         return { ...base };
     }
   }
 
-  // ... Служебные методы (resolveDependencies, topologicalSort и логгирование) оставляем без изменений
+  /**
+   * Разрешает зависимости для заданного списка сущностей
+   */
   private resolveDependencies(entities: EntityType[]): EntityType[] {
     const resolved = new Set<EntityType>(entities);
     entities.forEach((entity) => {
@@ -296,6 +466,9 @@ export class SyncOrchestrator {
     return Array.from(resolved);
   }
 
+  /**
+   * Топологическая сортировка сущностей по зависимостям
+   */
   private topologicalSort(entities: EntityType[]): EntityType[] {
     const sorted: EntityType[] = [];
     const visited = new Set<EntityType>();
@@ -303,42 +476,98 @@ export class SyncOrchestrator {
       if (visited.has(entity)) return;
       visited.add(entity);
       const deps = DEPENDENCY_GRAPH[entity] || [];
-      deps.forEach((dep) => { if (entities.includes(dep)) visit(dep); });
+      deps.forEach((dep) => {
+        if (entities.includes(dep)) {
+          visit(dep);
+        }
+      });
       sorted.push(entity);
     };
     entities.forEach(visit);
     return sorted;
   }
 
-  private async getSyncMetadata(entityType: EntityType) {
+  /**
+   * Получает метаданные последней синхронизации из базы
+   */
+  private async getSyncMetadata(entityType: EntityType): Promise<any> {
     if (!this.supabase) return null;
-    const { data } = await this.supabase.from('sync_metadata').select('*').eq('entity_type', entityType).single();
+    const { data } = await this.supabase
+      .from('sync_metadata')
+      .select('*')
+      .eq('entity_type', entityType)
+      .single();
     return data;
   }
 
-  private async updateSyncMetadata(entityType: EntityType, incremental: boolean, totalRecords: number) {
+  /**
+   * Обновляет метаданные синхронизации в базе
+   */
+  private async updateSyncMetadata(entityType: EntityType, incremental: boolean, totalRecords: number): Promise<void> {
     if (!this.supabase) return;
-    const update: any = { status: 'idle', error_message: null, total_records: totalRecords };
-    if (incremental) update.last_incremental_sync_at = new Date().toISOString();
-    else update.last_full_sync_at = new Date().toISOString();
-    await this.supabase.from('sync_metadata').update(update).eq('entity_type', entityType);
+    const update: any = {
+      status: 'idle',
+      error_message: null,
+      total_records: totalRecords,
+    };
+    if (incremental) {
+      update.last_incremental_sync_at = new Date().toISOString();
+    } else {
+      update.last_full_sync_at = new Date().toISOString();
+    }
+    await this.supabase
+      .from('sync_metadata')
+      .update(update)
+      .eq('entity_type', entityType);
   }
 
+  /**
+   * Создает запись в журнале синхронизации
+   */
   private async createSyncLog(entityType: EntityType, syncType: string): Promise<number> {
     if (!this.supabase) return 0;
-    const { data } = await this.supabase.from('sync_logs').insert({ entity_type: entityType, sync_type: syncType, status: 'started' }).select('id').single();
+    const { data } = await this.supabase
+      .from('sync_logs')
+      .insert({ entity_type: entityType, sync_type: syncType, status: 'started' })
+      .select('id')
+      .single();
     return data?.id || 0;
   }
 
-  private async completeSyncLog(logId: number, stats: any, durationMs: number) {
+  /**
+   * Обновляет запись в журнале синхронизации при успешном завершении
+   */
+  private async completeSyncLog(logId: number, stats: any, durationMs: number): Promise<void> {
     if (!this.supabase || !logId) return;
-    await this.supabase.from('sync_logs').update({ status: 'completed', ...stats, completed_at: new Date().toISOString(), duration_ms: durationMs }).eq('id', logId);
+    await this.supabase
+      .from('sync_logs')
+      .update({
+        status: 'completed',
+        ...stats,
+        completed_at: new Date().toISOString(),
+        duration_ms: durationMs,
+      })
+      .eq('id', logId);
   }
 
-  private async failSyncLog(logId: number, errorMessage: string, durationMs: number) {
+  /**
+   * Обновляет запись в журнале синхронизации при ошибке
+   */
+  private async failSyncLog(logId: number, errorMessage: string, durationMs: number): Promise<void> {
     if (!this.supabase || !logId) return;
-    await this.supabase.from('sync_logs').update({ status: 'failed', error_message: errorMessage, completed_at: new Date().toISOString(), duration_ms: durationMs }).eq('id', logId);
+    await this.supabase
+      .from('sync_logs')
+      .update({
+        status: 'failed',
+        error_message: errorMessage,
+        completed_at: new Date().toISOString(),
+        duration_ms: durationMs,
+      })
+      .eq('id', logId);
   }
 }
 
+/**
+ * Экспортируем синглтон для удобства
+ */
 export const syncOrchestrator = new SyncOrchestrator();

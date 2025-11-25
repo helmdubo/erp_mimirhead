@@ -14,6 +14,7 @@ import type {
   KaitenTag,
   KaitenPropertyDefinition,
   PaginationParams,
+  KaitenTimeLog,
 } from "./types";
 
 // Исправление двойных слэшей в URL и удаление /api/latest если есть
@@ -99,7 +100,8 @@ async function fetchAllPaginated<T>(
     limit = DEFAULT_PAGE_SIZE,
     offset: initialOffset = 0,
     updated_since,
-  } = options;
+    ...rest
+  } = options as any;
 
   const allItems: T[] = [];
   let currentOffset = initialOffset;
@@ -118,6 +120,12 @@ async function fetchAllPaginated<T>(
     if (updated_since) {
       params.updated_since = updated_since;
     }
+    // Пропускаем остальные параметры (например, from, to)
+    Object.entries(rest).forEach(([key, value]) => {
+      if (value !== undefined) {
+        params[key] = value as any;
+      }
+    });
 
     try {
       const response = await fetchKaiten<{ items?: T[]; data?: T[] }>(
@@ -137,7 +145,6 @@ async function fetchAllPaginated<T>(
       } else {
         allItems.push(...items);
         currentOffset += items.length;
-
         // Если получили меньше чем limit, значит это последняя страница
         if (items.length < limit) {
           console.log(`  ✅ Received ${items.length} < ${limit}, last page reached`);
@@ -360,13 +367,19 @@ export const kaitenClient = {
       active: { archived: false, completed_at: "null" },
       archived: { archived: true },
     };
-
-    // Kaiten API может иметь свои фильтры, это пример
-    // Нужно уточнить документацию API
     return fetchAllPaginated<KaitenCard>("cards", {
       ...params,
       ...filterMap[status],
     } as any);
+  },
+
+  /**
+   * Логи времени (Time Logs)
+   * Можно указать диапазон дат через параметры from/to (YYYY-MM-DD),
+   * либо использовать updated_since для инкрементальной синхронизации.
+   */
+  async getTimeLogs(params?: PaginationParams): Promise<KaitenTimeLog[]> {
+    return fetchAllPaginated<KaitenTimeLog>("time-logs", params as any);
   },
 };
 
@@ -375,7 +388,8 @@ export const kaitenClient = {
  */
 export const kaitenUtils = {
   /**
-   * Вычисляет MD5 хэш для payload (для определения изменений)
+   * Вычисляет SHA-256 хэш для payload (для определения изменений)
+   * Сортирует ключи перед сериализацией для стабильности результата.
    */
   async calculatePayloadHash(payload: any): Promise<string> {
     const jsonString = JSON.stringify(payload, Object.keys(payload).sort());
