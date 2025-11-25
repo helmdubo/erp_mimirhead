@@ -300,7 +300,7 @@ export class SyncOrchestrator {
     );
 
     // Upsert батчами
-    const batchSize = 100;
+    const batchSize = 1000;
     for (let i = 0; i < dbRows.length; i += batchSize) {
       const batch = dbRows.slice(i, i + batchSize);
       console.log(`💾 [${entityType}] Batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(dbRows.length/batchSize)} (${batch.length} rows)`);
@@ -583,9 +583,13 @@ export class SyncOrchestrator {
       record.last_full_sync_at = new Date().toISOString();
     }
     // Используем upsert, чтобы автоматически создать строку если её нет
-    await this.supabase
+    const { error } = await this.supabase
       .from('sync_metadata')
       .upsert(record, { onConflict: 'entity_type' });
+
+    if (error) {
+      console.error(`⚠️ [${entityType}] Failed to update sync_metadata:`, error);
+    }
   }
 
   /**
@@ -593,11 +597,16 @@ export class SyncOrchestrator {
    */
   private async createSyncLog(entityType: EntityType, syncType: string): Promise<number> {
     if (!this.supabase) return 0;
-    const { data } = await this.supabase
+    const { data, error } = await this.supabase
       .from('sync_logs')
       .insert({ entity_type: entityType, sync_type: syncType, status: 'started' })
       .select('id')
       .single();
+
+    if (error) {
+      console.error(`⚠️ [${entityType}] Failed to create sync_log:`, error);
+      return 0;
+    }
     return data?.id || 0;
   }
 
@@ -606,7 +615,7 @@ export class SyncOrchestrator {
    */
   private async completeSyncLog(logId: number, stats: any, durationMs: number): Promise<void> {
     if (!this.supabase || !logId) return;
-    await this.supabase
+    const { error } = await this.supabase
       .from('sync_logs')
       .update({
         status: 'completed',
@@ -615,6 +624,10 @@ export class SyncOrchestrator {
         duration_ms: durationMs,
       })
       .eq('id', logId);
+
+    if (error) {
+      console.error(`⚠️ [Log ${logId}] Failed to complete sync_log:`, error);
+    }
   }
 
   /**
@@ -623,7 +636,7 @@ export class SyncOrchestrator {
   private async failSyncLog(logId: number, errorMessage: string, durationMs: number): Promise<void> {
     if (!this.supabase || !logId) return;
     console.error(`💾 [DB Log] Writing failure for log ${logId}: ${errorMessage}`);
-    await this.supabase
+    const { error } = await this.supabase
       .from('sync_logs')
       .update({
         status: 'failed',
@@ -632,6 +645,10 @@ export class SyncOrchestrator {
         duration_ms: durationMs,
       })
       .eq('id', logId);
+
+    if (error) {
+      console.error(`⚠️ [Log ${logId}] Failed to write failure to sync_log:`, error);
+    }
   }
 }
 
