@@ -100,11 +100,11 @@ export function SyncControls({ onSyncComplete }: SyncControlsProps) {
             Только карточки (быстро)
           </button>
           <button
-            onClick={() => runAction(() => syncSpecificEntities(["users", "tags"]), "Справочники обновлены")}
+            onClick={() => runAction(() => syncSpecificEntities(["users", "tags", "roles"]), "Справочники обновлены")}
             disabled={syncing}
             className="rounded bg-slate-100 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-200 disabled:opacity-50"
           >
-            Пользователи и теги
+            Пользователи, теги и роли
           </button>
         </div>
       </div>

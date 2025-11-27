@@ -108,6 +108,12 @@ export interface Database {
           tablename: string;
         }[];
       };
+      sync_employee_kaiten_roles: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          updated_count: number;
+        }[];
+      };
     };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
