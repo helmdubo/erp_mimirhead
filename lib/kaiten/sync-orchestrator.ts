@@ -57,25 +57,10 @@ export interface SyncResult {
  * Опции синхронизации
  */
 export interface SyncOptions {
-  /**
-   * Список сущностей для синхронизации. Если не указан – синхронизуются все.
-   */
   entityTypes?: EntityType[];
-  /**
-   * Включает инкрементальный режим: только изменённые с момента последней синхронизации записи.
-   */
   incremental?: boolean;
-  /**
-   * Автоматически подтягивать зависимости для указанных сущностей.
-   */
   resolveDependencies?: boolean;
-  /**
-   * Дата начала диапазона выгрузки тайм‑логов в формате «YYYY-MM-DD». Если указано, перекрывает `updated_since`.
-   */
   timeLogsFrom?: string;
-  /**
-   * Дата конца диапазона выгрузки тайм‑логов в формате «YYYY-MM-DD». Если не указано, для тайм‑логов используется текущая дата.
-   */
   timeLogsTo?: string;
 }
 
@@ -85,10 +70,6 @@ export interface SyncOptions {
 export class SyncOrchestrator {
   private supabase = getServiceSupabaseClient();
 
-  /**
-   * Запускает синхронизацию. Можно указать подмножество сущностей,
-   * использовать инкрементальный режим и автоматическое разрешение зависимостей.
-   */
   async sync(options: SyncOptions = {}): Promise<SyncResult[]> {
     const {
       entityTypes,
@@ -105,15 +86,12 @@ export class SyncOrchestrator {
       throw new Error("Supabase client not available");
     }
 
-    // Определяем, какие сущности будем синхронизировать
     let entitiesToSync: EntityType[] = entityTypes || (Object.keys(DEPENDENCY_GRAPH) as EntityType[]);
 
-    // Подключаем зависимости, если нужно
     if (resolveDependencies) {
       entitiesToSync = this.resolveDependencies(entitiesToSync);
     }
 
-    // Сортируем по зависимостям
     const sortedEntities = this.topologicalSort(entitiesToSync);
     console.log(`📋 [Sync] Execution Order:`, sortedEntities.join(' -> '));
 
@@ -122,7 +100,6 @@ export class SyncOrchestrator {
     for (const entityType of sortedEntities) {
       console.log(`▶️ [Sync] Processing: ${entityType}...`);
       try {
-        // Передаём в syncEntity полный объект options, чтобы тайм‑логи могли использовать диапазон
         const result = await this.syncEntity(entityType, {
           incremental,
           timeLogsFrom,
@@ -137,7 +114,6 @@ export class SyncOrchestrator {
           console.error(`❌ [Sync] ${entityType} FAILED: ${result.error}`);
         }
 
-        // Останавливаем синхронизацию при критической ошибке в базовых сущностях
         if (!result.success && ['spaces', 'boards', 'columns', 'lanes'].includes(entityType)) {
           console.error(`⛔ [Sync] Critical failure in ${entityType}. Aborting sequence.`);
           break;
@@ -161,9 +137,6 @@ export class SyncOrchestrator {
     return results;
   }
 
-  /**
-   * Синхронизация одной сущности
-   */
   private async syncEntity(
     entityType: EntityType,
     opts: { incremental: boolean; timeLogsFrom?: string; timeLogsTo?: string }
@@ -173,14 +146,12 @@ export class SyncOrchestrator {
     const logId = await this.createSyncLog(entityType, incremental ? 'incremental' : 'full');
 
     try {
-      // Получаем время последней инкрементальной синхронизации
       const metadata = await this.getSyncMetadata(entityType);
       const updatedSince: string | undefined =
         incremental && metadata?.last_incremental_sync_at
           ? metadata.last_incremental_sync_at
           : undefined;
 
-      // Подготавливаем параметры для запроса данных
       const fetchParams: any = {};
       if (entityType === 'time_logs') {
         const fromParam =
@@ -207,7 +178,6 @@ export class SyncOrchestrator {
       console.log(`📡 [${entityType}] Fetching from Kaiten with params:`, fetchParams);
       await debugLogger.info(`Fetching ${entityType} from Kaiten`, entityType, { params: fetchParams });
 
-      // Запрашиваем данные из Kaiten
       const kaitenData = await this.fetchFromKaiten(entityType, fetchParams);
       console.log(`📦 [${entityType}] Received ${kaitenData.length} items.`);
       await debugLogger.info(`Received ${kaitenData.length} ${entityType} items`, entityType, { count: kaitenData.length });
@@ -215,7 +185,6 @@ export class SyncOrchestrator {
       console.log(`💾 [${entityType}] Starting transformation and upsert to DB...`);
       await debugLogger.info(`Starting upsert ${kaitenData.length} ${entityType} to DB`, entityType);
 
-      // Выполняем upsert в базу
       const stats = await this.upsertToDatabase(entityType, kaitenData);
       console.log(`✨ [${entityType}] Upsert completed successfully.`);
       await debugLogger.info(`Upsert completed for ${entityType}`, entityType, {
@@ -223,7 +192,6 @@ export class SyncOrchestrator {
         total: stats.total
       });
 
-      // Обновляем метаданные синхронизации
       await this.updateSyncMetadata(entityType, incremental, stats.total);
       const duration = Date.now() - startTime;
       await this.completeSyncLog(logId, stats, duration);
@@ -255,13 +223,8 @@ export class SyncOrchestrator {
     }
   }
 
-  /**
-   * Обращается к Kaiten API в зависимости от типа сущности
-   * ВАЖНО: Убран limit: 1000, так как API Kaiten ограничивает ответ 100 записями,
-   * и это ломает логику пагинации (received < requested).
-   */
   private async fetchFromKaiten(entityType: EntityType, params?: any): Promise<any[]> {
-    const baseParams = { ...params }; // limit: 100 (по умолчанию в client.ts)
+    const baseParams = { ...params };
     
     switch (entityType) {
       case 'spaces': return kaitenClient.getSpaces(baseParams);
@@ -272,20 +235,12 @@ export class SyncOrchestrator {
       case 'card_types': return kaitenClient.getCardTypes();
       case 'property_definitions': return kaitenClient.getPropertyDefinitions();
       case 'tags': return kaitenClient.getTags();
-      
-      case 'time_logs': 
-        return kaitenClient.getTimeLogs(baseParams);
-      case 'cards': 
-        return kaitenClient.getCards(baseParams);
-        
-      default:
-        throw new Error(`Unknown entity type: ${entityType}`);
+      case 'time_logs': return kaitenClient.getTimeLogs(baseParams);
+      case 'cards': return kaitenClient.getCards(baseParams);
+      default: throw new Error(`Unknown entity type: ${entityType}`);
     }
   }
 
-  /**
-   * Выполняет пакетный upsert в Supabase
-   */
   private async upsertToDatabase(entityType: EntityType, data: any[]): Promise<{
     total: number;
     records_processed: number;
@@ -303,14 +258,12 @@ export class SyncOrchestrator {
       records_skipped: 0,
     };
 
-    // Преобразуем данные в формат базы
     console.log(`🔄 [${entityType}] Transforming ${data.length} items...`);
     const dbRows = await Promise.all(
       data.map(async (item) => await this.transformToDbFormat(entityType, item))
     );
     console.log(`✓ [${entityType}] Transformation complete. Got ${dbRows.length} rows.`);
 
-    // Upsert батчами
     const batchSize = 1000;
     for (let i = 0; i < dbRows.length; i += batchSize) {
       const batch = dbRows.slice(i, i + batchSize);
@@ -339,9 +292,6 @@ export class SyncOrchestrator {
     return stats;
   }
 
-  /**
-   * Преобразует полученные данные из Kaiten в формат базы Supabase.
-   */
   private async transformToDbFormat(entityType: EntityType, kaitenData: any): Promise<any> {
     const payloadHash = await kaitenUtils.calculatePayloadHash(kaitenData);
     const base: any = {
@@ -394,6 +344,10 @@ export class SyncOrchestrator {
           completed_at: kaitenData.completed_at ? new Date(kaitenData.completed_at).toISOString() : null,
           properties: kaitenData.properties || {},
           tags_cache: kaitenData.tags || [],
+          
+          // 🔥 ВАЖНО: Передаем полный массив для SQL-триггера
+          members_data: kaitenData.members || [],
+          
           parents_ids: finalParentIds,
           children_ids: finalChildIds,
           members_ids: membersIds,
@@ -403,122 +357,25 @@ export class SyncOrchestrator {
         };
       }
 
-      case 'spaces':
-        return {
-          ...base,
-          title: kaitenData.title,
-          company_id: kaitenData.company_id || null,
-          owner_user_id: kaitenData.owner_user_id || null,
-          archived: kaitenData.archived || false,
-          sort_order: kaitenData.sort_order || null,
-          kaiten_created_at: kaitenData.created ? kaitenData.created : null,
-          kaiten_updated_at: kaitenData.updated ? kaitenData.updated : null,
-        };
-      case 'boards':
-        return {
-          ...base,
-          space_id: kaitenData.space_id,
-          title: kaitenData.title,
-          description: kaitenData.description || null,
-          board_type: kaitenData.board_type || null,
-          archived: kaitenData.archived || false,
-          sort_order: kaitenData.sort_order || null,
-          kaiten_created_at: kaitenData.created ? kaitenData.created : null,
-          kaiten_updated_at: kaitenData.updated ? kaitenData.updated : null,
-        };
-      case 'columns':
-        return {
-          ...base,
-          title: kaitenData.title,
-          board_id: kaitenData.board_id,
-          column_type: kaitenData.type,
-          sort_order: kaitenData.sort_order ?? kaitenData.order ?? null,
-          wip_limit: kaitenData.wip_limit || null,
-          archived: kaitenData.archived || false,
-          kaiten_created_at: kaitenData.created || null,
-          kaiten_updated_at: kaitenData.updated || null,
-        };
-      case 'lanes':
-        return {
-          ...base,
-          title: kaitenData.title,
-          board_id: kaitenData.board_id,
-          sort_order: kaitenData.sort_order ?? kaitenData.order ?? null,
-          archived: kaitenData.archived || false,
-          kaiten_created_at: kaitenData.created || null,
-          kaiten_updated_at: kaitenData.updated || null,
-        };
-      case 'users':
-        return {
-          ...base,
-          full_name: kaitenData.full_name || null,
-          email: kaitenData.email || null,
-          username: kaitenData.username || null,
-          timezone: kaitenData.timezone || null,
-          role: kaitenData.role || null,
-          is_admin: kaitenData.is_admin || false,
-          take_licence: kaitenData.take_licence || null,
-          apps_permissions: kaitenData.apps_permissions || null,
-          locked: kaitenData.locked || null,
-          last_request_date: kaitenData.last_request_date || null,
-          kaiten_created_at: kaitenData.created || null,
-          kaiten_updated_at: kaitenData.updated || null,
-        };
-      case 'card_types':
-        return {
-          ...base,
-          name: kaitenData.name,
-          icon_url: kaitenData.icon_url || null,
-          kaiten_created_at: kaitenData.created || null,
-          kaiten_updated_at: kaitenData.updated || null,
-        };
-      case 'tags':
-        return {
-          ...base,
-          name: kaitenData.name,
-          color: kaitenData.color || null,
-          group_name: kaitenData.group_name || null,
-          kaiten_created_at: kaitenData.created || null,
-          kaiten_updated_at: kaitenData.updated || null,
-        };
-      case 'property_definitions':
-        return {
-          ...base,
-          name: kaitenData.name || 'Untitled',
-          field_type: kaitenData.type || null,
-          select_options: kaitenData.select_options || null,
-          kaiten_created_at: kaitenData.created || null,
-          kaiten_updated_at: kaitenData.updated || null,
-        };
+      // ... Остальные кейсы без изменений, оставляем стандартный маппинг
+      case 'spaces': return { ...base, title: kaitenData.title, company_id: kaitenData.company_id || null, owner_user_id: kaitenData.owner_user_id || null, archived: kaitenData.archived || false, sort_order: kaitenData.sort_order || null, kaiten_created_at: kaitenData.created ? kaitenData.created : null, kaiten_updated_at: kaitenData.updated ? kaitenData.updated : null };
+      case 'boards': return { ...base, space_id: kaitenData.space_id, title: kaitenData.title, description: kaitenData.description || null, board_type: kaitenData.board_type || null, archived: kaitenData.archived || false, sort_order: kaitenData.sort_order || null, kaiten_created_at: kaitenData.created ? kaitenData.created : null, kaiten_updated_at: kaitenData.updated ? kaitenData.updated : null };
+      case 'columns': return { ...base, title: kaitenData.title, board_id: kaitenData.board_id, column_type: kaitenData.type, sort_order: kaitenData.sort_order ?? kaitenData.order ?? null, wip_limit: kaitenData.wip_limit || null, archived: kaitenData.archived || false, kaiten_created_at: kaitenData.created || null, kaiten_updated_at: kaitenData.updated || null };
+      case 'lanes': return { ...base, title: kaitenData.title, board_id: kaitenData.board_id, sort_order: kaitenData.sort_order ?? kaitenData.order ?? null, archived: kaitenData.archived || false, kaiten_created_at: kaitenData.created || null, kaiten_updated_at: kaitenData.updated || null };
+      case 'users': return { ...base, full_name: kaitenData.full_name || null, email: kaitenData.email || null, username: kaitenData.username || null, timezone: kaitenData.timezone || null, role: kaitenData.role || null, is_admin: kaitenData.is_admin || false, take_licence: kaitenData.take_licence || null, apps_permissions: kaitenData.apps_permissions || null, locked: kaitenData.locked || null, last_request_date: kaitenData.last_request_date || null, kaiten_created_at: kaitenData.created || null, kaiten_updated_at: kaitenData.updated || null };
+      case 'card_types': return { ...base, name: kaitenData.name, icon_url: kaitenData.icon_url || null, kaiten_created_at: kaitenData.created || null, kaiten_updated_at: kaitenData.updated || null };
+      case 'tags': return { ...base, name: kaitenData.name, color: kaitenData.color || null, group_name: kaitenData.group_name || null, kaiten_created_at: kaitenData.created || null, kaiten_updated_at: kaitenData.updated || null };
+      case 'property_definitions': return { ...base, name: kaitenData.name || 'Untitled', field_type: kaitenData.type || null, select_options: kaitenData.select_options || null, kaiten_created_at: kaitenData.created || null, kaiten_updated_at: kaitenData.updated || null };
       case 'time_logs': {
         const slimPayload: any = { ...kaitenData };
-        delete slimPayload.card;
-        delete slimPayload.user;
-        delete slimPayload.owner;
-        delete slimPayload.author;
-        delete slimPayload.role;
-        delete slimPayload.tags;
-        delete slimPayload.board;
-        delete slimPayload.lane;
-        delete slimPayload.column;
-        delete slimPayload.parents;
-        delete slimPayload.children;
+        delete slimPayload.card; delete slimPayload.user; delete slimPayload.owner; delete slimPayload.author; delete slimPayload.role; delete slimPayload.tags; delete slimPayload.board; delete slimPayload.lane; delete slimPayload.column; delete slimPayload.parents; delete slimPayload.children;
         return {
           ...base,
           raw_payload: slimPayload,
           card_id: kaitenData.card_id ?? kaitenData.card?.id ?? null,
-          user_id:
-            kaitenData.user_id ??
-            kaitenData.author_id ??
-            (kaitenData.author && kaitenData.author.id) ??
-            (kaitenData.user && kaitenData.user.id) ??
-            null,
-          role_id:
-            kaitenData.role_id ??
-            (kaitenData.role && kaitenData.role.id) ??
-            null,
-          time_spent_minutes:
-            kaitenData.time_spent_minutes ?? kaitenData.time_spent ?? 0,
+          user_id: kaitenData.user_id ?? kaitenData.author_id ?? (kaitenData.author && kaitenData.author.id) ?? (kaitenData.user && kaitenData.user.id) ?? null,
+          role_id: kaitenData.role_id ?? (kaitenData.role && kaitenData.role.id) ?? null,
+          time_spent_minutes: kaitenData.time_spent_minutes ?? kaitenData.time_spent ?? 0,
           date: kaitenData.date ?? kaitenData.for_date ?? null,
           comment: kaitenData.comment || null,
           created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
@@ -531,156 +388,51 @@ export class SyncOrchestrator {
     }
   }
 
-  /**
-   * Разрешает зависимости для заданного списка сущностей
-   */
   private resolveDependencies(entities: EntityType[]): EntityType[] {
     const resolved = new Set<EntityType>(entities);
-    entities.forEach((entity) => {
-      const deps = DEPENDENCY_GRAPH[entity] || [];
-      deps.forEach((dep) => resolved.add(dep));
-    });
+    entities.forEach((entity) => { const deps = DEPENDENCY_GRAPH[entity] || []; deps.forEach((dep) => resolved.add(dep)); });
     return Array.from(resolved);
   }
 
-  /**
-   * Топологическая сортировка сущностей по зависимостям
-   */
   private topologicalSort(entities: EntityType[]): EntityType[] {
-    const sorted: EntityType[] = [];
-    const visited = new Set<EntityType>();
+    const sorted: EntityType[] = []; const visited = new Set<EntityType>();
     const visit = (entity: EntityType) => {
-      if (visited.has(entity)) return;
-      visited.add(entity);
-      const deps = DEPENDENCY_GRAPH[entity] || [];
-      deps.forEach((dep) => {
-        if (entities.includes(dep)) {
-          visit(dep);
-        }
-      });
+      if (visited.has(entity)) return; visited.add(entity);
+      const deps = DEPENDENCY_GRAPH[entity] || []; deps.forEach((dep) => { if (entities.includes(dep)) visit(dep); });
       sorted.push(entity);
     };
-    entities.forEach(visit);
-    return sorted;
+    entities.forEach(visit); return sorted;
   }
 
-  /**
-   * Получает метаданные последней синхронизации из базы
-   */
   private async getSyncMetadata(entityType: EntityType): Promise<any> {
     if (!this.supabase) return null;
-    const { data } = await this.supabase
-      .from('sync_metadata')
-      .select('*')
-      .eq('entity_type', entityType)
-      .single();
+    const { data } = await this.supabase.from('sync_metadata').select('*').eq('entity_type', entityType).single();
     return data;
   }
 
-  /**
-   * Обновляет метаданные синхронизации в базе.
-   * * FIX: Теперь мы запрашиваем реальное количество записей (count) из таблицы,
-   * вместо использования batchCount. Это решает проблему параллельной синхронизации,
-   * когда частичное обновление (один месяц) перезаписывало total_records своим значением.
-   */
   private async updateSyncMetadata(entityType: EntityType, incremental: boolean, _batchCount: number): Promise<void> {
     if (!this.supabase) return;
-
-    // 1. Получаем АКТУАЛЬНОЕ количество записей в таблице
-    // Используем head: true и count: 'exact', чтобы не тянуть данные, а только посчитать
-    const { count, error: countError } = await this.supabase
-      .schema('kaiten')
-      .from(entityType)
-      .select('*', { count: 'exact', head: true });
-
-    if (countError) {
-      console.error(`⚠️ [${entityType}] Failed to count total records:`, countError);
-    }
-
-    // 2. Записываем в метаданные реальный total из базы
-    const record: any = {
-      entity_type: entityType,
-      status: 'idle',
-      error_message: null,
-      total_records: count ?? _batchCount, // Если count не удалось получить, используем старое поведение
-    };
-
-    if (incremental) {
-      record.last_incremental_sync_at = new Date().toISOString();
-    } else {
-      record.last_full_sync_at = new Date().toISOString();
-    }
-
-    const { error } = await this.supabase
-      .from('sync_metadata')
-      .upsert(record, { onConflict: 'entity_type' });
-
-    if (error) {
-      console.error(`⚠️ [${entityType}] Failed to update sync_metadata:`, error);
-    }
+    const { count } = await this.supabase.schema('kaiten').from(entityType).select('*', { count: 'exact', head: true });
+    const record: any = { entity_type: entityType, status: 'idle', error_message: null, total_records: count ?? _batchCount };
+    if (incremental) record.last_incremental_sync_at = new Date().toISOString(); else record.last_full_sync_at = new Date().toISOString();
+    await this.supabase.from('sync_metadata').upsert(record, { onConflict: 'entity_type' });
   }
 
-  /**
-   * Создает запись в журнале синхронизации
-   */
   private async createSyncLog(entityType: EntityType, syncType: string): Promise<number> {
     if (!this.supabase) return 0;
-    const { data, error } = await this.supabase
-      .from('sync_logs')
-      .insert({ entity_type: entityType, sync_type: syncType, status: 'started' })
-      .select('id')
-      .single();
-
-    if (error) {
-      console.error(`⚠️ [${entityType}] Failed to create sync_log:`, error);
-      return 0;
-    }
+    const { data } = await this.supabase.from('sync_logs').insert({ entity_type: entityType, sync_type: syncType, status: 'started' }).select('id').single();
     return data?.id || 0;
   }
 
-  /**
-   * Обновляет запись в журнале синхронизации при успешном завершении
-   */
   private async completeSyncLog(logId: number, stats: any, durationMs: number): Promise<void> {
     if (!this.supabase || !logId) return;
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { total, ...statsWithoutTotal } = stats;
-
-    const { error } = await this.supabase
-      .from('sync_logs')
-      .update({
-        status: 'completed',
-        ...statsWithoutTotal,
-        completed_at: new Date().toISOString(),
-        duration_ms: durationMs,
-      })
-      .eq('id', logId);
-
-    if (error) {
-      console.error(`⚠️ [Log ${logId}] Failed to complete sync_log:`, error);
-    }
+    await this.supabase.from('sync_logs').update({ status: 'completed', ...statsWithoutTotal, completed_at: new Date().toISOString(), duration_ms: durationMs }).eq('id', logId);
   }
 
-  /**
-   * Обновляет запись в журнале синхронизации при ошибке
-   */
   private async failSyncLog(logId: number, errorMessage: string, durationMs: number): Promise<void> {
     if (!this.supabase || !logId) return;
-    console.error(`💾 [DB Log] Writing failure for log ${logId}: ${errorMessage}`);
-    const { error } = await this.supabase
-      .from('sync_logs')
-      .update({
-        status: 'failed',
-        error_message: errorMessage?.substring(0, 1000),
-        completed_at: new Date().toISOString(),
-        duration_ms: durationMs,
-      })
-      .eq('id', logId);
-
-    if (error) {
-      console.error(`⚠️ [Log ${logId}] Failed to write failure to sync_log:`, error);
-    }
+    await this.supabase.from('sync_logs').update({ status: 'failed', error_message: errorMessage?.substring(0, 1000), completed_at: new Date().toISOString(), duration_ms: durationMs }).eq('id', logId);
   }
 }
 
