@@ -318,6 +318,14 @@ export class SyncOrchestrator {
           finalChildIds = kaitenData.children.map((c: any) => c.id);
         }
 
+        if (kaitenData.members && kaitenData.members.length > 0) {
+             console.log(`🔍 DEBUG CARD ${kaitenData.id}: Found ${kaitenData.members.length} members in source.`);
+        } else {
+             // Если в логах будет это, значит API почему-то не отдал members
+             console.log(`🔍 DEBUG CARD ${kaitenData.id}: No members found in source data.`);
+        }
+        // ☝️ КОНЕЦ БЛОКА ☝️
+
         const membersIds = Array.isArray(kaitenData.members)
           ? kaitenData.members.map((m: any) => m.id)
           : [];
