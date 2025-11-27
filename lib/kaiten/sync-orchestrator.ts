@@ -1,5 +1,5 @@
 /**
- * Sync Orchestrator (LINT FIXED)
+ * Sync Orchestrator (FINAL WITH ROLES)
  * Управляет синхронизацией данных с Kaiten, разрешает зависимости
  */
 
@@ -8,17 +8,20 @@ import { kaitenClient, kaitenUtils } from "./client";
 import { debugLogger } from "@/lib/debug-logger";
 import { EntityType } from "./types";
 
+/**
+ * Граф зависимостей: какие сущности нужно синхронизировать перед другими
+ */
 const DEPENDENCY_GRAPH: Record<EntityType, EntityType[]> = {
   spaces: [],
   users: [],
   card_types: [],
   property_definitions: [],
   tags: [],
+  roles: [], // 🔥 ДОБАВЛЕНО: Роли независимы
   boards: ['spaces', 'users'],
   columns: ['boards'],
   lanes: ['boards'],
-  cards: ['boards', 'columns', 'lanes', 'users', 'card_types'],
-  roles: [],
+  cards: ['boards', 'columns', 'lanes', 'users', 'card_types', 'tags'],
   time_logs: ['users', 'cards'],
 };
 
@@ -126,7 +129,6 @@ export class SyncOrchestrator {
           ? metadata.last_incremental_sync_at
           : undefined;
 
-      // ИСПРАВЛЕНО: const вместо let (Linter Fix)
       const fetchParams: any = {};
       
       if (entityType === 'time_logs') {
@@ -212,8 +214,8 @@ export class SyncOrchestrator {
       case 'property_definitions': return kaitenClient.getPropertyDefinitions();
       case 'tags': return kaitenClient.getTags();
       case 'time_logs': return kaitenClient.getTimeLogs(baseParams);
-	  case 'roles': return kaitenClient.getRoles();
       case 'cards': return kaitenClient.getCards(baseParams);
+      case 'roles': return kaitenClient.getRoles(); // 🔥 ДОБАВЛЕНО
       default: throw new Error(`Unknown entity type: ${entityType}`);
     }
   }
@@ -241,7 +243,6 @@ export class SyncOrchestrator {
     );
     console.log(`✓ [${entityType}] Transformation complete. Got ${dbRows.length} rows.`);
 
-    // ИСПРАВЛЕНО: Уменьшаем размер батча для cards, чтобы не падать по timeout
     const batchSize = entityType === 'cards' ? 50 : 1000;
 
     for (let i = 0; i < dbRows.length; i += batchSize) {
@@ -282,6 +283,15 @@ export class SyncOrchestrator {
     };
 
     switch (entityType) {
+      case 'roles': // 🔥 ДОБАВЛЕНО
+        return {
+          ...base,
+          name: kaitenData.name,
+          company_id: kaitenData.company_id,
+          created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
+          updated_at: kaitenData.updated ? new Date(kaitenData.updated).toISOString() : null,
+        };
+
       case 'cards': {
         let extractedSpaceId = kaitenData.space_id;
         if (!extractedSpaceId && kaitenData.board?.spaces?.length > 0) {
@@ -328,23 +338,13 @@ export class SyncOrchestrator {
           children_ids: finalChildIds,
           members_ids: membersIds,
           estimate_workload: kaitenData.estimate_workload || 0,
-		  external_id: kaitenData.external_id || null,
           kaiten_created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
           kaiten_updated_at: kaitenData.updated ? new Date(kaitenData.updated).toISOString() : null,
+          external_id: kaitenData.external_id || null, // 🔥 ДОБАВЛЕНО
         };
       }
 
-	  case 'roles':
-        return {
-          ...base,
-          name: kaitenData.name,
-          company_id: kaitenData.company_id,
-          created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
-          updated_at: kaitenData.updated ? new Date(kaitenData.updated).toISOString() : null,
-        };
-
       case 'time_logs': {
-        // ИСПРАВЛЕНО: Используем delete вместо деструктуризации с неиспользуемыми переменными (Linter Fix)
         const slimPayload = { ...kaitenData };
         delete slimPayload.card;
         delete slimPayload.user;
@@ -381,7 +381,6 @@ export class SyncOrchestrator {
         };
       }
 
-      // Остальные кейсы (стандартные)
       case 'spaces': return { ...base, title: kaitenData.title, company_id: kaitenData.company_id || null, owner_user_id: kaitenData.owner_user_id || null, archived: kaitenData.archived || false, sort_order: kaitenData.sort_order || null, kaiten_created_at: kaitenData.created ? kaitenData.created : null, kaiten_updated_at: kaitenData.updated ? kaitenData.updated : null };
       case 'boards': return { ...base, space_id: kaitenData.space_id, title: kaitenData.title, description: kaitenData.description || null, board_type: kaitenData.board_type || null, archived: kaitenData.archived || false, sort_order: kaitenData.sort_order || null, kaiten_created_at: kaitenData.created ? kaitenData.created : null, kaiten_updated_at: kaitenData.updated ? kaitenData.updated : null };
       case 'columns': return { ...base, title: kaitenData.title, board_id: kaitenData.board_id, column_type: kaitenData.type, sort_order: kaitenData.sort_order ?? kaitenData.order ?? null, wip_limit: kaitenData.wip_limit || null, archived: kaitenData.archived || false, kaiten_created_at: kaitenData.created || null, kaiten_updated_at: kaitenData.updated || null };
@@ -442,11 +441,8 @@ export class SyncOrchestrator {
 
   private async completeSyncLog(logId: number, stats: any, durationMs: number): Promise<void> {
     if (!this.supabase || !logId) return;
-
-    // ИСПРАВЛЕНО: Убираем total через копирование и удаление, чтобы успокоить линтер (unused var)
     const statsToSave = { ...stats };
     delete statsToSave.total;
-
     await this.supabase.from('sync_logs').update({
       status: 'completed',
       ...statsToSave,
