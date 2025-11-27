@@ -3,6 +3,19 @@
  * Типы данных из Kaiten API
  */
 
+// 🔥 1. Тип сущностей (EntityType) - его не хватало
+export type EntityType =
+  | 'spaces'
+  | 'boards'
+  | 'columns'
+  | 'lanes'
+  | 'users'
+  | 'card_types'
+  | 'property_definitions'
+  | 'tags'
+  | 'cards'
+  | 'time_logs';
+
 // Карточка (Card)
 export interface KaitenCard {
   id: number;
