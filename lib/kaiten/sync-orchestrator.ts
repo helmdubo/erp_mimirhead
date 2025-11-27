@@ -18,6 +18,7 @@ const DEPENDENCY_GRAPH: Record<EntityType, EntityType[]> = {
   columns: ['boards'],
   lanes: ['boards'],
   cards: ['boards', 'columns', 'lanes', 'users', 'card_types'],
+  roles: [],
   time_logs: ['users', 'cards'],
 };
 
@@ -211,6 +212,7 @@ export class SyncOrchestrator {
       case 'property_definitions': return kaitenClient.getPropertyDefinitions();
       case 'tags': return kaitenClient.getTags();
       case 'time_logs': return kaitenClient.getTimeLogs(baseParams);
+	  case 'roles': return kaitenClient.getRoles();
       case 'cards': return kaitenClient.getCards(baseParams);
       default: throw new Error(`Unknown entity type: ${entityType}`);
     }
@@ -326,10 +328,20 @@ export class SyncOrchestrator {
           children_ids: finalChildIds,
           members_ids: membersIds,
           estimate_workload: kaitenData.estimate_workload || 0,
+		  external_id: kaitenData.external_id || null,
           kaiten_created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
           kaiten_updated_at: kaitenData.updated ? new Date(kaitenData.updated).toISOString() : null,
         };
       }
+
+	  case 'roles':
+        return {
+          ...base,
+          name: kaitenData.name,
+          company_id: kaitenData.company_id,
+          created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
+          updated_at: kaitenData.updated ? new Date(kaitenData.updated).toISOString() : null,
+        };
 
       case 'time_logs': {
         // ИСПРАВЛЕНО: Используем delete вместо деструктуризации с неиспользуемыми переменными (Linter Fix)

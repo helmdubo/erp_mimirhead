@@ -14,7 +14,18 @@ export type EntityType =
   | 'property_definitions'
   | 'tags'
   | 'cards'
-  | 'time_logs';
+  | 'time_logs'
+  | 'roles';
+
+export interface KaitenRole {
+  id: number;
+  name: string;
+  company_id?: number;
+  uid?: string;
+  created?: string;
+  updated?: string;
+  [key: string]: any;
+}
 
 // Карточка (Card)
 export interface KaitenCard {
@@ -40,6 +51,7 @@ export interface KaitenCard {
   completed_at?: string;
   properties?: Record<string, any>;
   tags?: Array<{ id: number; name: string; color?: string }>;
+  external_id?: string;
 
   // Новые поля для внутреннего использования
   estimate_workload?: number;

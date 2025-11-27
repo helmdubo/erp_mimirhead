@@ -360,6 +360,10 @@ export const kaitenClient = {
     return fetchKaiten<KaitenUser>(`users/${id}`);
   },
 
+  async getRoles(): Promise<KaitenRole[]> {
+    return fetchKaiten<KaitenRole[]>("user-roles"); // Эндпоинт из вашего примера
+  },
+
   /**
    * Типы карточек (Card Types)
    */
