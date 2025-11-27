@@ -165,6 +165,9 @@ export class SyncOrchestrator {
 
       const stats = await this.upsertToDatabase(entityType, kaitenData);
       console.log(`✨ [${entityType}] Upsert completed successfully.`);
+      if (entityType === 'users' || entityType === 'roles') {
+        await this.syncEmployeeKaitenRoles();
+      }
       await debugLogger.info(`Upsert completed for ${entityType}`, entityType, {
         processed: stats.records_processed,
         total: stats.total
@@ -394,6 +397,25 @@ export class SyncOrchestrator {
         console.warn(`No transformer for entity type ${entityType}`);
         return { ...base };
     }
+  }
+
+  private async syncEmployeeKaitenRoles(): Promise<void> {
+    if (!this.supabase) throw new Error('Supabase not available');
+
+    console.log("🔄 [employees] Syncing Kaiten role mappings onto ops.employees...");
+    const { data, error } = await this.supabase.rpc('sync_employee_kaiten_roles');
+
+    if (error) {
+      console.error("❌ [employees] Failed to refresh kaiten_role_id", error);
+      await debugLogger.error("Failed to refresh kaiten_role_id on employees", 'employees', {
+        error: error.message,
+        details: error,
+      });
+      throw new Error(error.message);
+    }
+
+    const updatedCount = Array.isArray(data) && data[0]?.updated_count ? Number(data[0].updated_count) : 0;
+    console.log(`👥 [employees] kaiten_role_id refreshed for ${updatedCount} employees.`);
   }
 
   private resolveDependencies(entities: EntityType[]): EntityType[] {

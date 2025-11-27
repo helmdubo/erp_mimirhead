@@ -46,7 +46,7 @@ export async function syncAllData(): Promise<ActionResult> {
     // Явно перечисляем сущности БЕЗ time_logs
     // Это гарантирует, что мы уложимся в 60 секунд Vercel
     const entities: any[] = [
-      'spaces', 'users', 'card_types', 'property_definitions', 'tags',
+      'spaces', 'users', 'card_types', 'property_definitions', 'tags', 'roles',
       'boards', 'columns', 'lanes', 'cards'
     ];
 
