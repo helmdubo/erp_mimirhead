@@ -47,7 +47,9 @@ export async function syncAllData(): Promise<ActionResult> {
     // Это гарантирует, что мы уложимся в 60 секунд Vercel
     const entities: any[] = [
       'spaces', 'users', 'card_types', 'property_definitions', 'tags', 'roles',
-      'boards', 'columns', 'lanes', 'cards'
+      'tree_entity_roles', // 🔥 Новое: каталог ролей доступа
+      'boards', 'columns', 'lanes', 'cards',
+      'space_members', // 🔥 Новое: участники spaces
     ];
 
     await syncOrchestrator.sync({
@@ -58,7 +60,7 @@ export async function syncAllData(): Promise<ActionResult> {
 
     return {
       status: "ok",
-      message: "Структура и карточки обновлены. Таймшиты загружайте отдельно.",
+      message: "Структура, карточки и участники обновлены. Таймшиты загружайте отдельно.",
     };
   } catch (error: any) {
     console.error("Sync All Error:", error);
@@ -127,6 +129,22 @@ export async function syncForceEntities(entityTypes: string[]): Promise<ActionRe
     return { status: "ok", message: `FORCE синк ${entityTypes.join(", ")} завершен` };
   } catch (error: any) {
     return { status: "error", message: "Ошибка FORCE синхронизации", error: error.message };
+  }
+}
+
+/**
+ * 🔥 НОВОЕ: Синхронизация ролей и участников spaces
+ */
+export async function syncSpaceRolesAndMembers(): Promise<ActionResult> {
+  try {
+    await syncOrchestrator.sync({
+      entityTypes: ['tree_entity_roles', 'space_members'] as any,
+      incremental: false,
+      resolveDependencies: true, // Подтянет spaces и users если нужно
+    });
+    return { status: "ok", message: "Роли доступа и участники spaces синхронизированы" };
+  } catch (error: any) {
+    return { status: "error", message: "Ошибка синхронизации ролей", error: error.message };
   }
 }
 

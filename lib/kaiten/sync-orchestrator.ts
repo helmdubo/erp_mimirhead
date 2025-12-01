@@ -1,12 +1,12 @@
 /**
- * Sync Orchestrator (FINAL WITH ROLES)
+ * Sync Orchestrator (FINAL WITH TREE ENTITY ROLES & SPACE MEMBERS)
  * Управляет синхронизацией данных с Kaiten, разрешает зависимости
  */
 
 import { getServiceSupabaseClient } from "@/lib/supabase/server";
 import { kaitenClient, kaitenUtils } from "./client";
 import { debugLogger } from "@/lib/debug-logger";
-import { EntityType } from "./types";
+import { EntityType, KaitenSpaceUser } from "./types";
 
 /**
  * Граф зависимостей: какие сущности нужно синхронизировать перед другими
@@ -17,12 +17,14 @@ const DEPENDENCY_GRAPH: Record<EntityType, EntityType[]> = {
   card_types: [],
   property_definitions: [],
   tags: [],
-  roles: [], // 🔥 ДОБАВЛЕНО: Роли независимы
+  roles: [],
+  tree_entity_roles: [],                         // Каталог ролей (независим)
   boards: ['spaces', 'users'],
   columns: ['boards'],
   lanes: ['boards'],
   cards: ['boards', 'columns', 'lanes', 'users', 'card_types', 'tags'],
   time_logs: ['users', 'cards'],
+  space_members: ['spaces', 'users', 'tree_entity_roles'], // Зависит от справочников
 };
 
 export interface SyncResult {
@@ -156,6 +158,20 @@ export class SyncOrchestrator {
       console.log(`📡 [${entityType}] Fetching from Kaiten with params:`, fetchParams);
       await debugLogger.info(`Fetching ${entityType} from Kaiten`, entityType, { params: fetchParams });
 
+      // Специальная обработка для space_members
+      if (entityType === 'space_members') {
+        const stats = await this.syncSpaceMembers();
+        await this.updateSyncMetadata(entityType, incremental, stats.total);
+        const duration = Date.now() - startTime;
+        await this.completeSyncLog(logId, stats, duration);
+        return {
+          entity_type: entityType,
+          success: true,
+          ...stats,
+          duration_ms: duration,
+        };
+      }
+
       const kaitenData = await this.fetchFromKaiten(entityType, fetchParams);
       console.log(`📦 [${entityType}] Received ${kaitenData.length} items.`);
       await debugLogger.info(`Received ${kaitenData.length} ${entityType} items`, entityType, { count: kaitenData.length });
@@ -215,9 +231,139 @@ export class SyncOrchestrator {
       case 'tags': return kaitenClient.getTags();
       case 'time_logs': return kaitenClient.getTimeLogs(baseParams);
       case 'cards': return kaitenClient.getCards(baseParams);
-      case 'roles': return kaitenClient.getRoles(); // 🔥 ДОБАВЛЕНО
+      case 'roles': return kaitenClient.getRoles();
+      case 'tree_entity_roles': return kaitenClient.getTreeEntityRoles();
+      // space_members обрабатывается отдельно в syncSpaceMembers()
       default: throw new Error(`Unknown entity type: ${entityType}`);
     }
+  }
+
+  /**
+   * Специальный метод для синхронизации space_members
+   * Разворачивает данные из /spaces/{id}/users в плоскую таблицу
+   */
+  private async syncSpaceMembers(): Promise<{
+    total: number;
+    records_processed: number;
+    records_created: number;
+    records_updated: number;
+    records_skipped: number;
+  }> {
+    if (!this.supabase) throw new Error('Supabase not available');
+
+    console.log(`📥 [space_members] Fetching all space members...`);
+    const allSpaceData = await kaitenClient.getAllSpaceMembers();
+
+    // Разворачиваем данные в плоскую структуру
+    const memberRows: Array<{
+      space_id: number;
+      user_id: number;
+      role_id: string;
+      is_from_group: boolean;
+      group_id: number | null;
+    }> = [];
+
+    for (const { spaceId, users } of allSpaceData) {
+      for (const user of users) {
+        // Добавляем собственные роли пользователя
+        if (user.own_role_ids && Array.isArray(user.own_role_ids)) {
+          for (const roleId of user.own_role_ids) {
+            memberRows.push({
+              space_id: spaceId,
+              user_id: user.id,
+              role_id: roleId,
+              is_from_group: false,
+              group_id: null,
+            });
+          }
+        }
+
+        // Добавляем роли через группы
+        if (user.own_groups_role_ids && Array.isArray(user.own_groups_role_ids)) {
+          for (const roleId of user.own_groups_role_ids) {
+            // Определяем из какой группы эта роль (если возможно)
+            const groupId = user.groups?.find(g => 
+              user.groups_role_ids?.includes(roleId)
+            )?.id || null;
+
+            memberRows.push({
+              space_id: spaceId,
+              user_id: user.id,
+              role_id: roleId,
+              is_from_group: true,
+              group_id: groupId,
+            });
+          }
+        }
+
+        // Fallback: если нет own_role_ids, используем role_ids
+        if ((!user.own_role_ids || user.own_role_ids.length === 0) && 
+            user.role_ids && Array.isArray(user.role_ids)) {
+          for (const roleId of user.role_ids) {
+            // Проверяем, не добавлена ли уже эта роль
+            const exists = memberRows.some(
+              r => r.space_id === spaceId && r.user_id === user.id && r.role_id === roleId
+            );
+            if (!exists) {
+              memberRows.push({
+                space_id: spaceId,
+                user_id: user.id,
+                role_id: roleId,
+                is_from_group: false,
+                group_id: null,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    console.log(`📦 [space_members] Prepared ${memberRows.length} member-role records`);
+
+    // Удаляем старые записи и вставляем новые (full replace)
+    console.log(`🗑️ [space_members] Clearing old records...`);
+    const { error: deleteError } = await this.supabase
+      .schema('kaiten')
+      .from('space_members')
+      .delete()
+      .gte('id', 0); // Удаляем все записи
+
+    if (deleteError) {
+      console.error(`❌ [space_members] Delete error:`, deleteError);
+      throw deleteError;
+    }
+
+    // Вставляем батчами
+    const batchSize = 500;
+    let totalInserted = 0;
+
+    for (let i = 0; i < memberRows.length; i += batchSize) {
+      const batch = memberRows.slice(i, i + batchSize).map(row => ({
+        ...row,
+        synced_at: new Date().toISOString(),
+      }));
+
+      const { error: insertError } = await this.supabase
+        .schema('kaiten')
+        .from('space_members')
+        .insert(batch as any);
+
+      if (insertError) {
+        console.error(`❌ [space_members] Insert error at batch ${i}:`, insertError);
+        throw insertError;
+      }
+
+      totalInserted += batch.length;
+      console.log(`✅ [space_members] Inserted batch ${Math.floor(i / batchSize) + 1}, total: ${totalInserted}`);
+    }
+
+    return {
+      total: memberRows.length,
+      records_processed: memberRows.length,
+      records_created: memberRows.length,
+      records_updated: 0,
+      records_skipped: 0,
+    };
   }
 
   private async upsertToDatabase(entityType: EntityType, data: any[]): Promise<{
@@ -274,16 +420,38 @@ export class SyncOrchestrator {
 
   private async transformToDbFormat(entityType: EntityType, kaitenData: any): Promise<any> {
     const payloadHash = await kaitenUtils.calculatePayloadHash(kaitenData);
+    
+    // Для tree_entity_roles id — это UUID (string), не number
     const base: any = {
       id: kaitenData.id,
-      uid: kaitenData.uid || null,
       synced_at: new Date().toISOString(),
       payload_hash: payloadHash,
       raw_payload: kaitenData,
     };
 
+    // Добавляем uid только для сущностей с числовым id
+    if (typeof kaitenData.id === 'number') {
+      base.uid = kaitenData.uid || null;
+    }
+
     switch (entityType) {
-      case 'roles': // 🔥 ДОБАВЛЕНО
+      case 'tree_entity_roles':
+        return {
+          id: kaitenData.id, // UUID!
+          name: kaitenData.name,
+          permissions: kaitenData.permissions || {},
+          sort_order: kaitenData.sort_order,
+          company_uid: kaitenData.company_uid || null,
+          is_locked: kaitenData.locked || false,
+          new_permissions_default_value: kaitenData.new_permissions_default_value,
+          kaiten_created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
+          kaiten_updated_at: kaitenData.updated ? new Date(kaitenData.updated).toISOString() : null,
+          synced_at: new Date().toISOString(),
+          payload_hash: payloadHash,
+          raw_payload: kaitenData,
+        };
+
+      case 'roles':
         return {
           ...base,
           name: kaitenData.name,
@@ -340,7 +508,7 @@ export class SyncOrchestrator {
           estimate_workload: kaitenData.estimate_workload || 0,
           kaiten_created_at: kaitenData.created ? new Date(kaitenData.created).toISOString() : null,
           kaiten_updated_at: kaitenData.updated ? new Date(kaitenData.updated).toISOString() : null,
-          external_id: kaitenData.external_id || null, // 🔥 ДОБАВЛЕНО
+          external_id: kaitenData.external_id || null,
         };
       }
 

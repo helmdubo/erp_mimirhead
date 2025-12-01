@@ -15,7 +15,9 @@ export type EntityType =
   | 'tags'
   | 'cards'
   | 'time_logs'
-  | 'roles'; // Добавлено
+  | 'roles'
+  | 'tree_entity_roles'   // Каталог ролей доступа (UUID!)
+  | 'space_members';      // Участники spaces с ролями
 
 // 2. Параметры пагинации
 export interface PaginationParams {
@@ -35,6 +37,58 @@ export interface KaitenRole {
   uid?: string;
   created?: string;
   updated?: string;
+  [key: string]: any;
+}
+
+// Роли доступа к spaces (tree-entity-roles)
+// ВАЖНО: id здесь UUID, не number!
+export interface KaitenTreeEntityRole {
+  id: string;  // UUID!
+  name: string;
+  permissions: Record<string, any>;
+  sort_order?: number;
+  company_uid?: string | null;  // null для стандартных, UUID для кастомных
+  new_permissions_default_value?: boolean;
+  locked?: boolean | null;
+  created?: string;
+  updated?: string;
+  [key: string]: any;
+}
+
+// Участник space (из /spaces/{id}/users)
+export interface KaitenSpaceUser {
+  id: number;           // user_id
+  uid?: string;
+  full_name: string;
+  email?: string;
+  username?: string;
+  
+  // Роли пользователя в этом space
+  role_ids: string[];           // Все роли (UUID[])
+  own_role_ids: string[];       // Собственные роли
+  groups_role_ids?: string[];   // Роли через группы
+  own_groups_role_ids?: string[];
+  
+  // Группы пользователя
+  groups?: Array<{
+    id: number;
+    name: string;
+    company_id: number;
+    permissions: number;
+    add_to_cards_and_spaces_enabled: boolean;
+    user_id: number;
+  }>;
+  
+  // Legacy поля
+  role?: number;
+  own_role?: number;
+  space_role_id?: number;
+  access_mod?: string;
+  own_access_mod?: string;
+  
+  role_permissions?: Record<string, any>;
+  current?: boolean;
+  
   [key: string]: any;
 }
 
@@ -172,7 +226,7 @@ export interface KaitenCard {
   updated?: string;
   
   properties?: any;
-  external_id?: string; // Добавлено
+  external_id?: string;
   [key: string]: any;
 }
 

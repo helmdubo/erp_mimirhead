@@ -16,6 +16,8 @@ import type {
   PaginationParams,
   KaitenTimeLog,
   KaitenRole,
+  KaitenTreeEntityRole,
+  KaitenSpaceUser,
 } from "./types";
 
 // Исправление двойных слэшей в URL и удаление /api/latest если есть
@@ -290,9 +292,67 @@ export const kaitenClient = {
     } as any);
   },
 
-  // 🔥 НОВЫЙ МЕТОД: Роли
+  // Роли для тайм-логов (user-roles)
   async getRoles(): Promise<KaitenRole[]> {
     return fetchKaiten<KaitenRole[]>("user-roles");
+  },
+
+  // ============================================
+  // 🔥 НОВЫЕ МЕТОДЫ: Tree Entity Roles & Space Members
+  // ============================================
+
+  /**
+   * Получить каталог ролей доступа (tree-entity-roles)
+   * Это роли типа admin, writer, reader, "Художник" и т.д.
+   */
+  async getTreeEntityRoles(): Promise<KaitenTreeEntityRole[]> {
+    return fetchKaiten<KaitenTreeEntityRole[]>("tree-entity-roles");
+  },
+
+  /**
+   * Получить участников конкретного space с их ролями
+   */
+  async getSpaceUsers(spaceId: number): Promise<KaitenSpaceUser[]> {
+    return fetchKaiten<KaitenSpaceUser[]>(`spaces/${spaceId}/users`);
+  },
+
+  /**
+   * Получить всех участников всех spaces
+   * Возвращает массив объектов { spaceId, users }
+   */
+  async getAllSpaceMembers(): Promise<Array<{ spaceId: number; users: KaitenSpaceUser[] }>> {
+    console.log("📥 Fetching all space members...");
+    const spaces = await this.getSpaces();
+    const allSpaceMembers: Array<{ spaceId: number; users: KaitenSpaceUser[] }> = [];
+    const chunkSize = 3; // Меньше чанк для /users эндпоинта
+
+    for (let i = 0; i < spaces.length; i += chunkSize) {
+      const chunk = spaces.slice(i, i + chunkSize);
+      const results = await Promise.allSettled(
+        chunk.map(async (space) => {
+          const users = await fetchKaiten<KaitenSpaceUser[]>(`spaces/${space.id}/users`);
+          return { spaceId: space.id, users };
+        })
+      );
+
+      results.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          allSpaceMembers.push(result.value);
+        } else {
+          console.warn(`⚠️ Failed to fetch space users:`, result.reason);
+        }
+      });
+
+      // Пауза между чанками для rate limiting
+      if (i + chunkSize < spaces.length) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+    }
+
+    const totalUsers = allSpaceMembers.reduce((sum, s) => sum + s.users.length, 0);
+    console.log(`✅ Fetched members from ${allSpaceMembers.length} spaces (${totalUsers} total user-space pairs)`);
+    
+    return allSpaceMembers;
   },
 };
 
