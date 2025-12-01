@@ -6,7 +6,7 @@
 import { getServiceSupabaseClient } from "@/lib/supabase/server";
 import { kaitenClient, kaitenUtils } from "./client";
 import { debugLogger } from "@/lib/debug-logger";
-import { EntityType, KaitenSpaceUser } from "./types";
+import { EntityType } from "./types";
 
 /**
  * Граф зависимостей: какие сущности нужно синхронизировать перед другими
@@ -282,7 +282,7 @@ export class SyncOrchestrator {
         if (user.own_groups_role_ids && Array.isArray(user.own_groups_role_ids)) {
           for (const roleId of user.own_groups_role_ids) {
             // Определяем из какой группы эта роль (если возможно)
-            const groupId = user.groups?.find(g => 
+            const groupId = user.groups?.find(() => 
               user.groups_role_ids?.includes(roleId)
             )?.id || null;
 
