@@ -8,6 +8,7 @@ import {
   syncSpecificEntities,
   syncTimeLogsRange,
   syncTimeLogsYearParallel,
+  syncSpaceRolesAndMembers, // 🔥 НОВОЕ
 } from "@/app/actions/sync-actions";
 
 interface SyncControlsProps {
@@ -106,6 +107,14 @@ export function SyncControls({ onSyncComplete }: SyncControlsProps) {
           >
             Пользователи, теги и роли
           </button>
+          {/* 🔥 НОВАЯ КНОПКА */}
+          <button
+            onClick={() => runAction(syncSpaceRolesAndMembers, "Роли и участники синхронизированы")}
+            disabled={syncing}
+            className="rounded bg-purple-100 px-3 py-1.5 text-sm font-medium text-purple-700 hover:bg-purple-200 disabled:opacity-50"
+          >
+            👥 Роли доступа и участники
+          </button>
         </div>
       </div>
 
@@ -181,7 +190,7 @@ export function SyncControls({ onSyncComplete }: SyncControlsProps) {
         </div>
       )}
 
-      {/* Результаты (исправляет ошибку 'results assigned but never used') */}
+      {/* Результаты */}
       {results && results.length > 0 && (
         <div className="space-y-2">
           <h3 className="font-semibold text-slate-700">Детализация:</h3>
