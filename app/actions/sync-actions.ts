@@ -43,13 +43,12 @@ export async function getSyncStatus(): Promise<
 
 export async function syncAllData(): Promise<ActionResult> {
   try {
-    // Явно перечисляем сущности БЕЗ time_logs
-    // Это гарантирует, что мы уложимся в 60 секунд Vercel
+    // Оригинальный список сущностей БЕЗ time_logs
+    // Это гарантирует укладывание в 60 секунд Vercel Hobby plan
     const entities: any[] = [
       'spaces', 'users', 'card_types', 'property_definitions', 'tags', 'roles',
-      'tree_entity_roles', // 🔥 Новое: каталог ролей доступа
-      'boards', 'columns', 'lanes', 'cards',
-      'space_members', // 🔥 Новое: участники spaces
+      'boards', 'columns', 'lanes', 'cards'
+      // tree_entity_roles и space_members — через отдельную кнопку после применения миграции
     ];
 
     await syncOrchestrator.sync({
@@ -60,7 +59,7 @@ export async function syncAllData(): Promise<ActionResult> {
 
     return {
       status: "ok",
-      message: "Структура, карточки и участники обновлены. Таймшиты загружайте отдельно.",
+      message: "Структура и карточки обновлены. Таймшиты загружайте отдельно.",
     };
   } catch (error: any) {
     console.error("Sync All Error:", error);
@@ -133,17 +132,22 @@ export async function syncForceEntities(entityTypes: string[]): Promise<ActionRe
 }
 
 /**
- * 🔥 НОВОЕ: Синхронизация ролей и участников spaces
+ * Синхронизация ролей доступа и участников spaces
+ * Подтягивает spaces и users если нужно (их мало, это быстро)
  */
 export async function syncSpaceRolesAndMembers(): Promise<ActionResult> {
   try {
+    // Один вызов sync() для обеих сущностей
+    // С зависимостями - подтянет spaces/users если нужно (17 users, 2 spaces = быстро)
     await syncOrchestrator.sync({
       entityTypes: ['tree_entity_roles', 'space_members'] as any,
       incremental: false,
-      resolveDependencies: true, // Подтянет spaces и users если нужно
+      resolveDependencies: true,
     });
+
     return { status: "ok", message: "Роли доступа и участники spaces синхронизированы" };
   } catch (error: any) {
+    console.error("syncSpaceRolesAndMembers error:", error);
     return { status: "error", message: "Ошибка синхронизации ролей", error: error.message };
   }
 }

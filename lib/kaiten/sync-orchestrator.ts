@@ -253,6 +253,7 @@ export class SyncOrchestrator {
 
     console.log(`📥 [space_members] Fetching all space members...`);
     const allSpaceData = await kaitenClient.getAllSpaceMembers();
+    console.log(`📥 [space_members] Got data from ${allSpaceData.length} spaces`);
 
     // Разворачиваем данные в плоскую структуру
     const memberRows: Array<{
@@ -264,7 +265,19 @@ export class SyncOrchestrator {
     }> = [];
 
     for (const { spaceId, users } of allSpaceData) {
+      console.log(`🔍 [space_members] Space ${spaceId}: ${users.length} users`);
+      
       for (const user of users) {
+        // Диагностика: что есть у пользователя
+        const hasOwnRoles = user.own_role_ids && user.own_role_ids.length > 0;
+        const hasRoleIds = user.role_ids && user.role_ids.length > 0;
+        const hasGroupRoles = user.own_groups_role_ids && user.own_groups_role_ids.length > 0;
+        
+        if (!hasOwnRoles && !hasRoleIds && !hasGroupRoles) {
+          console.log(`⚠️ [space_members] User ${user.id} (${user.full_name}) has NO roles in space ${spaceId}`);
+          console.log(`   raw role data: own_role_ids=${JSON.stringify(user.own_role_ids)}, role_ids=${JSON.stringify(user.role_ids)}`);
+        }
+
         // Добавляем собственные роли пользователя
         if (user.own_role_ids && Array.isArray(user.own_role_ids)) {
           for (const roleId of user.own_role_ids) {
@@ -281,7 +294,7 @@ export class SyncOrchestrator {
         // Добавляем роли через группы
         if (user.own_groups_role_ids && Array.isArray(user.own_groups_role_ids)) {
           for (const roleId of user.own_groups_role_ids) {
-            // Определяем из какой группы эта роль (если возможно)
+            // Определяем из какой группы эта роль (берём первую группу с таким roleId)
             const groupId = user.groups?.find(() => 
               user.groups_role_ids?.includes(roleId)
             )?.id || null;
@@ -319,6 +332,17 @@ export class SyncOrchestrator {
     }
 
     console.log(`📦 [space_members] Prepared ${memberRows.length} member-role records`);
+    
+    if (memberRows.length === 0) {
+      console.warn(`⚠️ [space_members] No records to insert! Check API response structure.`);
+      return {
+        total: 0,
+        records_processed: 0,
+        records_created: 0,
+        records_updated: 0,
+        records_skipped: 0,
+      };
+    }
 
     // Удаляем старые записи и вставляем новые (full replace)
     console.log(`🗑️ [space_members] Clearing old records...`);

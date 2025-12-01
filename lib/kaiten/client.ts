@@ -323,14 +323,26 @@ export const kaitenClient = {
   async getAllSpaceMembers(): Promise<Array<{ spaceId: number; users: KaitenSpaceUser[] }>> {
     console.log("📥 Fetching all space members...");
     const spaces = await this.getSpaces();
+    console.log(`📥 Found ${spaces.length} spaces to fetch members from`);
+    
     const allSpaceMembers: Array<{ spaceId: number; users: KaitenSpaceUser[] }> = [];
     const chunkSize = 3; // Меньше чанк для /users эндпоинта
 
     for (let i = 0; i < spaces.length; i += chunkSize) {
       const chunk = spaces.slice(i, i + chunkSize);
+      console.log(`📥 Fetching users for spaces: ${chunk.map(s => s.id).join(', ')}`);
+      
       const results = await Promise.allSettled(
         chunk.map(async (space) => {
           const users = await fetchKaiten<KaitenSpaceUser[]>(`spaces/${space.id}/users`);
+          console.log(`   Space ${space.id} (${space.title}): ${users.length} users`);
+          
+          // Диагностика первого пользователя
+          if (users.length > 0) {
+            const first = users[0];
+            console.log(`   Sample user ${first.id}: own_role_ids=${JSON.stringify(first.own_role_ids)}, role_ids=${JSON.stringify(first.role_ids)}`);
+          }
+          
           return { spaceId: space.id, users };
         })
       );
