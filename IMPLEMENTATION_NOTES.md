@@ -542,3 +542,136 @@ for (let i = 0; i < allMemberLinks.length; i += 1000) {
 ### 15. Build Failures (ESLint)
 **Problem:** `npm run build` failed due to unused variables after removing debug UI.
 **Solution:** Cleaned up `sync-controls.tsx` removing unused imports and variables.
+
+## 🆕 Session Date: 2025-12-02
+
+### 16. Kaiten Roles System Integration
+
+**Problem:** Need to track user access roles in spaces, not just time-logging roles.
+
+**Discovery:** Kaiten has TWO separate role systems:
+1. **Time Log Roles** (`/user-roles`) → `kaiten.roles` — for timesheet entries
+2. **Tree Entity Roles** (`/tree-entity-roles`) → `kaiten.tree_entity_roles` — for access control
+
+**Critical difference:** Tree Entity Roles use **UUID** as ID, not integer!
+
+**Solution:**
+
+1. **New tables created:**
+   - `kaiten.tree_entity_roles` — catalog of access roles (UUID primary key!)
+   - `kaiten.space_members` — M:N relationship: users ↔ spaces ↔ roles
+
+2. **New views created:**
+   - `kaiten.v_space_members_detailed` — expanded list with joins
+   - `kaiten.v_user_roles_summary` — per-user aggregation
+
+3. **Migration:** `20250602000000_add_tree_entity_roles_and_space_members.sql`
+
+**API Response Structure:**
+
+```typescript
+// GET /tree-entity-roles
+interface TreeEntityRole {
+  id: string;           // UUID! Not number!
+  name: string;         // "admin", "writer", "Художник"
+  permissions: object;  // Detailed permissions
+  company_uid: string | null;  // null = standard, uuid = custom
+}
+
+// GET /spaces/{id}/users
+interface SpaceUser {
+  id: number;
+  own_role_ids: string[];      // Direct roles (UUID[])
+  own_groups_role_ids: string[]; // Roles via groups
+  groups: Array<{ id: number; name: string }>;
+}
+```
+
+**Sync Implementation:**
+- `tree_entity_roles`: Standard upsert by UUID
+- `space_members`: Full replace (DELETE + batch INSERT)
+- Separate sync button to avoid timeout in main sync
+
+### 17. New UI Pages
+
+**Added navigation and employees page:**
+
+1. **Main page** (`/`) — Dashboard with navigation cards
+2. **Employees page** (`/admin/employees`) — Interactive table with:
+   - Two view modes: Summary / Detailed
+   - Filters by spaces (checkbox pills)
+   - Filters by roles (checkbox pills)
+   - "Custom roles only" toggle
+   - "Group roles only" toggle
+   - Search by name/email
+   - Column visibility controls
+
+**New files:**
+- `app/page.tsx` — Main navigation
+- `app/admin/employees/page.tsx` — Server component
+- `app/admin/employees/employees-table.tsx` — Client component with filters
+- `app/actions/employees-actions.ts` — Server actions for data fetching
+
+### 18. ESLint Build Fixes
+
+**Problem:** Build failed with unused variable errors after adding roles sync.
+
+**Fixes applied:**
+1. Removed unused `KaitenSpaceUser` import from sync-orchestrator.ts
+2. Changed `g =>` to `() =>` in `.find()` callback (unused parameter)
+
+---
+
+## 🏗️ Architecture Decisions
+
+### Data Warehouse Approach
+- Remove FK constraints for analytics
+- Historical data preservation is priority
+- NULL foreign keys = deleted/archived parents
+
+### Roles System Design
+- Two separate role types (time-log vs access)
+- UUID for tree_entity_roles (Kaiten API requirement)
+- Separate sync for roles to avoid timeout
+
+### 19. Inactive Users Not Linked to Spaces
+
+**Problem:** Deactivated users showed "Неактивен" role but 0 spaces, even though they were returned by API.
+
+**Root Cause:** 
+1. Migration `20250602000001_allow_null_role_for_inactive_users.sql` was not applied
+2. `role_id` column was still NOT NULL, causing silent INSERT failures for inactive users
+
+**API Discovery:**
+Kaiten API requires specific parameters to get inactive users:
+```
+GET /spaces/{id}/users?include_inherited_access=true&inactive=true
+```
+
+Inactive users have NO role_ids fields - only basic user info:
+```json
+{
+  "id": 774286,
+  "full_name": "Андрей Горюнов",
+  "email": "gorunovandrey123@gmail.com"
+  // NO role_ids, NO own_role_ids!
+}
+```
+
+**Solution:**
+1. **Migration** makes `role_id` nullable and adds `is_inactive` boolean
+2. **Sync logic** detects users with no roles and marks them as inactive
+3. **VIEWs** updated to show "Неактивен" for null role_id
+4. **UI** shows 👻 icon and "Только неактивные" filter
+
+**Diagnostic SQL:** `supabase/diagnostic_space_members.sql`
+
+---
+
+**Last Updated:** 2025-12-02
+**Status:** Production Ready ✅
+**All Features Working:**
+- ✅ Active users with roles synced
+- ✅ Inactive/deactivated users synced with role_id=null
+- ✅ UI filters for inactive users
+- ✅ Spaces count correct for all users

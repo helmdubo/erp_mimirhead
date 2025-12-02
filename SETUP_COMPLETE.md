@@ -1,348 +1,253 @@
 # ✅ Supabase + Kaiten Integration - Setup Complete
 
-## 🎯 Current Status (2025-11-21)
+## 🎯 Current Status (2025-12-02)
 
-**✅ SYNC IS WORKING!** All data successfully syncing from Kaiten to Supabase.
+**✅ FULL INTEGRATION WORKING!**
 
 ### What's Working:
 - ✅ Supabase connection configured
 - ✅ All tables created in `kaiten` schema
 - ✅ Kaiten API client with correct endpoints
-- ✅ Full data synchronization (999 cards synced successfully)
-- ✅ Pagination working correctly
-- ✅ Fire-and-forget pattern for long operations
-- ✅ Optimized batch operations (syncCardTags)
-
-### Database Tables (in `kaiten` schema):
-- `spaces` - 2 records
-- `boards` - 7 records
-- `columns` - 20 records
-- `lanes` - 16 records
-- `users` - 12 records
-- `card_types` - synced
-- `tags` - synced
-- `property_definitions` - synced
-- `cards` - **999 records** ✅
-- `card_tags` - relationships synced
+- ✅ Full data synchronization (cards, users, boards, etc.)
+- ✅ Time logs sync (parallel by months)
+- ✅ Tree entity roles sync (access permissions)
+- ✅ Space members sync (user-space-role relationships)
+- ✅ **Inactive/deactivated users** synced with `role_id=null`
+- ✅ Employees UI page with filters (including "👻 Только неактивные")
 
 ---
 
-## 🔧 Technical Implementation
+## 📊 Database Tables
 
-### Key Components:
+### Core Tables (kaiten schema)
 
-1. **Kaiten API Client** (`lib/kaiten/client.ts`)
-   - Handles pagination (100 items per page)
-   - Fetches boards/columns/lanes through parent entities
-   - Parallel processing with controlled concurrency (chunks of 5)
-   - Detailed logging for debugging
+| Table | Records | Description |
+|-------|---------|-------------|
+| `spaces` | ~2 | Workspaces |
+| `boards` | ~7 | Boards |
+| `columns` | ~20 | Columns |
+| `lanes` | ~16 | Swim-lanes |
+| `users` | ~17 | Users |
+| `cards` | ~1000 | Tasks/cards |
+| `time_logs` | varies | Time entries |
+| `roles` | ~5 | Time-log roles |
+| `tree_entity_roles` | ~8 | Access roles (UUID!) |
+| `space_members` | varies | User-space-role links (incl. inactive!) |
 
-2. **Sync Orchestrator** (`lib/kaiten/sync-orchestrator.ts`)
-   - Manages sync workflow
-   - Batch upserts (100 records per batch)
-   - Optimized card-tags relationship sync
-   - Detailed performance logging
+### Key Columns in space_members
 
-3. **Admin UI** (`/admin/sync`)
-   - Fire-and-forget pattern for long operations
-   - Auto-refresh after sync completes
-   - Manual refresh button
-   - Sync history and logs
+| Column | Type | Description |
+|--------|------|-------------|
+| `space_id` | bigint | FK to spaces |
+| `user_id` | bigint | FK to users |
+| `role_id` | uuid **NULLABLE** | FK to tree_entity_roles (NULL for inactive) |
+| `is_inactive` | boolean | true for deactivated users |
+| `is_from_group` | boolean | true if role via group |
 
-### Performance Optimizations Applied:
+### Views
 
-1. **Parallel API Fetching**
-   - Processes 5 spaces/boards simultaneously
-   - Uses `Promise.allSettled` for error resilience
+| View | Description |
+|------|-------------|
+| `v_space_members_detailed` | Expanded member list (shows "Неактивен" for inactive) |
+| `v_user_roles_summary` | Aggregated user roles |
 
-2. **Optimized syncCardTags**
-   - **Before:** 2 queries × 999 cards = 1998 queries (~40s)
-   - **After:** 1 DELETE + 1-2 INSERT = 2-3 queries (~2s)
-   - **Result:** 20x faster!
+---
 
-3. **Batch Operations**
-   - Upserts: 100 records per batch
-   - Card-tags INSERT: 1000 records per batch
+## 🌐 UI Pages
 
-### Sync Performance:
+### Home (`/`)
+Navigation dashboard with quick access to all sections.
+
+### Sync Admin (`/admin/sync`)
+- Full sync button
+- Incremental sync button
+- **Roles & members sync button** ← NEW
+- Time logs sync (date range or full year)
+- Sync history table
+- Status per entity type
+
+### Employees (`/admin/employees`) ← NEW
+- Stats cards (users, spaces, roles, assignments)
+- Roles catalog display
+- Two view modes: Summary / Detailed
+- Filters:
+  - By spaces (checkbox pills)
+  - By roles (checkbox pills)
+  - Custom roles only
+  - Group roles only
+  - Search by name/email
+- Column visibility toggles
+
+---
+
+## 🔄 Sync Architecture
+
+### Entity Dependencies
 ```
-Total time: ~37 seconds (under 60s timeout)
-├─ Fetch from Kaiten: ~10s (999 cards in 10 pages)
-├─ Transform data: ~5s
-├─ Batch upsert: ~20s (10 batches)
-└─ Sync tags: ~2s (optimized)
+spaces ─────────────────────────────────┐
+users ──────────────────────────────────┤
+tree_entity_roles ──────────────────────┤
+                                        ▼
+boards ─────► columns ────► cards ────► time_logs
+       └────► lanes ───────┘
+                                        
+spaces + users + tree_entity_roles ────► space_members
+```
+
+### Sync Strategies
+
+| Entity | Strategy | Reason |
+|--------|----------|--------|
+| cards | Upsert by ID | Has `updated_at` |
+| tree_entity_roles | Upsert by UUID | Has `updated_at` |
+| space_members | Full replace | No `updated_at`, need to remove deleted |
+| time_logs | Upsert by ID | Date range filtering |
+
+---
+
+## 🎭 Roles System
+
+### Two Types of Roles
+
+**1. Time Log Roles** (`/user-roles` API)
+- Table: `kaiten.roles`
+- ID: `bigint`
+- Used for: Selecting role when logging time
+- Example: "3D Artist", "Developer"
+
+**2. Tree Entity Roles** (`/tree-entity-roles` API)
+- Table: `kaiten.tree_entity_roles`
+- ID: `uuid` ← IMPORTANT!
+- Used for: Access control to spaces/boards
+- Standard: admin, writer, reader
+- Custom: Company-specific (have `company_uid`)
+
+### Inactive/Deactivated Users
+
+Users who were deactivated in the company but historically worked on spaces:
+- **API:** `GET /spaces/{id}/users?include_inherited_access=true&inactive=true`
+- **No role_ids** in API response — only basic user info
+- **Stored with:** `role_id = NULL`, `is_inactive = true`
+- **Displayed as:** "👻 Неактивен" in UI
+- **Use case:** Historical reports ("how many people worked on project")
+
+### Space Members
+
+Links users to spaces via roles:
+```sql
+space_members (
+  space_id   → spaces.id
+  user_id    → users.id
+  role_id    → tree_entity_roles.id (UUID, NULLABLE!)
+  is_inactive    -- true for deactivated users
+  is_from_group  -- true if role via group
+  group_id       -- which group (if applicable)
+)
 ```
 
 ---
 
 ## 📋 Migration History
 
-All migrations applied successfully:
+| Migration | Description |
+|-----------|-------------|
+| `20250101000000_init_kaiten.sql` | Base schema + tables |
+| `20250121000001_fix_kaiten_permissions_and_tags.sql` | Permissions fix |
+| `20250121000002_fix_sort_order_types.sql` | Double precision |
+| `20250121000003_remove_fk_constraints_for_analytics.sql` | Remove FKs |
+| `20250122000000_add_card_members.sql` | Card participants |
+| `20250125000003_remove_timelogs_fks.sql` | Time logs FKs |
+| `20250602000000_add_tree_entity_roles_and_space_members.sql` | Roles system |
+| **`20250602000001_allow_null_role_for_inactive_users.sql`** | **Inactive users** |
 
-1. **20250101000000_init_kaiten.sql**
-   - Created `kaiten` schema
-   - Created all base tables
+### Critical: Inactive Users Migration
 
-2. **20250121000001_fix_kaiten_permissions_and_tags.sql**
-   - Granted permissions to service_role
-   - Added `payload_hash` columns
-   - Added `kaiten_created_at`/`kaiten_updated_at` to tags
+Migration `20250602000001` is **required** for inactive users:
+- Makes `role_id` nullable
+- Adds `is_inactive` boolean column  
+- Updates unique constraint with COALESCE for NULL handling
+- Recreates VIEWs with "Неактивен" for null roles
 
-3. **20250121000002_fix_sort_order_types.sql**
-   - Changed `sort_order` from `integer` to `double precision`
-   - Fixed Kaiten API compatibility (uses floats like 1.936...)
-
-4. **20250121000003_remove_fk_constraints_for_analytics.sql**
-   - Removed foreign key constraints from cards table
-   - This is a **data warehouse** - data completeness > strict integrity
-   - Cards preserved even if parent entities deleted
-
-5. **20250122000000_add_card_members.sql** ⚠️ NEW
-   - Created `card_members` M:N table
-   - Tracks all card participants (not just owner)
-   - Essential for analytics about who works on what
+**Diagnostic:** `supabase/diagnostic_space_members.sql`
 
 ---
 
-## ⚠️ Known Issues
+## 🚀 How to Run
 
-### 1. NULL Values in Some Card Columns ✅ PARTIALLY FIXED (2025-11-22)
-
-**Fixed:**
-- ✅ `space_id` - Now extracts from `board.spaces[0].id` when null in root
-
-**Still need investigation:**
-- `type_id` - might be NULL if card_types didn't sync first
-- `owner_id` - might be NULL if user deleted
-- `column_id` - should always have value (investigate if still NULL)
-- `lane_id` - can be NULL (not all boards use lanes - this is expected)
-
-**Next steps (if other NULLs persist):**
-1. Apply new migration: `npx supabase db push`
-2. Run full sync to populate `space_id` and `card_members`
-3. Check which columns still have NULLs
-4. Review raw_payload in cards table to see actual API response
-
-### 2. Timeout Warnings (Resolved with Fire-and-Forget)
-
-If sync takes >60s, user sees timeout error but sync continues in background.
-This is expected behavior with current fire-and-forget pattern.
-
-**Current solution:**
-- Auto-refresh page after 60-90s
-- Manual refresh button available
-- Data syncs successfully despite timeout message
-
----
-
-## 🚀 How to Run Sync
-
-### Option 1: Admin UI (Recommended)
-1. Navigate to `/admin/sync`
-2. Click "🔄 Полная синхронизация" for full sync
-3. Or click "⚡ Обновить изменения" for incremental sync
-4. Wait for auto-refresh or click "🔄 Обновить сейчас"
-
-### Option 2: Quick Actions
-- "Только карточки" - sync cards only
-- "Доски и структура" - sync boards, columns, lanes
-- "Пользователи и теги" - sync users and tags
-
-### Option 3: Manual (Terminal)
+### First Time Setup
 ```bash
-# Apply migrations
+# 1. Apply migrations
 npx supabase db push
 
-# Check migration status
-npx supabase migration list
+# 2. Open admin panel
+# https://your-site.vercel.app/admin/sync
+
+# 3. Click "🔄 Полная синхронизация"
+# 4. Click "👥 Роли доступа и участники"
+# 5. Load time logs as needed
 ```
+
+### Regular Updates
+- Use "⚡ Обновить изменения" for incremental sync
+- Roles sync is separate (doesn't change often)
 
 ---
 
-## 📊 Monitoring
+## ⚠️ Known Limitations
 
-### Check Sync Logs (Supabase)
-```sql
--- Recent sync history
-SELECT * FROM kaiten.sync_logs
-ORDER BY started_at DESC
-LIMIT 20;
+1. **Vercel Hobby timeout:** 60 seconds max
+   - Solution: Split syncs, parallel time logs
 
--- Failed syncs
-SELECT * FROM kaiten.sync_logs
-WHERE status = 'failed'
-ORDER BY started_at DESC;
+2. **space_members full replace:** Deletes and re-inserts all
+   - OK for small datasets (<1000 records)
 
--- Sync metadata (last sync times)
-SELECT * FROM kaiten.sync_metadata
-ORDER BY last_synced_at DESC;
-```
+3. **No real-time updates:** Manual sync required
+   - Webhook handler exists but needs HMAC validation
 
-### Check Vercel Function Logs
-- Go to Vercel Dashboard → Functions → Logs
-- Look for detailed timing information:
-  - `📄 Starting paginated fetch for...`
-  - `💾 Starting upsert for...`
-  - `✅ Batch N/M: X rows in Yms`
+---
+
+## 📁 Key Files
+
+### Sync Logic
+- `lib/kaiten/client.ts` — API client
+- `lib/kaiten/sync-orchestrator.ts` — ETL orchestrator
+- `lib/kaiten/types.ts` — TypeScript types
+- `app/actions/sync-actions.ts` — Server actions
+
+### UI Components
+- `app/page.tsx` — Home navigation
+- `app/admin/sync/sync-controls.tsx` — Sync buttons
+- `app/admin/employees/employees-table.tsx` — Employees table
+
+### Documentation
+- `README.md` — Project overview
+- `QUICK_START.md` — Getting started
+- `docs/KAITEN_ROLES.md` — Roles system details
+- `docs/SYNC_SYSTEM.md` — Sync architecture
 
 ---
 
 ## 🔐 Environment Variables
 
-### Required (Already Configured):
+```env
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=xxx
+SUPABASE_SERVICE_ROLE_KEY=xxx
 
-**Vercel:**
-```
-KAITEN_API_URL=https://mimirhead.kaiten.ru
-KAITEN_API_TOKEN=4ef043a1-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJxxx...
-SUPABASE_SERVICE_ROLE_KEY=eyJxxx...
-```
-
-**Note:** Never commit `.env.local` to git (contains secrets)
-
----
-
-## 📚 Key Files Reference
-
-### Configuration:
-- `AGENTS.md` - Project rules for AI agents
-- `CLAUDE.md` - Main project context
-- `.env.example` - Template for environment variables
-- `.env.local` - Local secrets (DO NOT COMMIT)
-
-### Database:
-- `supabase/migrations/` - SQL migration files
-- `types/database.types.ts` - Generated TypeScript types
-
-### Kaiten Integration:
-- `lib/kaiten/client.ts` - API client
-- `lib/kaiten/sync-orchestrator.ts` - Sync logic
-- `lib/kaiten/types.ts` - TypeScript types
-
-### UI:
-- `app/admin/sync/page.tsx` - Admin page (Server Component)
-- `app/admin/sync/sync-controls.tsx` - Sync buttons (Client Component)
-
-### Actions:
-- `app/actions/sync-actions.ts` - Server Actions for sync
-
----
-
-## 🎯 Next Session Tasks
-
-### ⚠️ IMMEDIATE (Apply Changes)
-
-1. **Apply new migration:**
-   ```bash
-   npx supabase db push
-   ```
-
-2. **Run full sync:**
-   - Go to `/admin/sync`
-   - Click "🔄 Полная синхронизация"
-   - Verify `space_id` is now populated
-   - Verify `card_members` table is populated
-
-3. **Check for remaining NULL values:**
-   ```sql
-   SELECT
-     COUNT(*) as total,
-     COUNT(space_id) as has_space_id,
-     COUNT(type_id) as has_type,
-     COUNT(owner_id) as has_owner,
-     COUNT(column_id) as has_column
-   FROM kaiten.cards;
-   ```
-
-### 📊 Optional Enhancements
-
-1. **Add data validation:**
-   - Add checks before upsert
-   - Log warnings for unexpected NULL values
-   - Add data quality metrics to sync_logs
-
-2. **Improve sync scheduling:**
-   - Set up cron job for automatic daily sync
-   - Implement webhook receiver for real-time updates
-
-3. **Build analytics dashboard:**
-   - Show card statistics by member (now possible with card_members!)
-   - Display user workload distribution
-   - Create board reports
-
----
-
-## 🛠️ Troubleshooting
-
-### Sync Fails with Permission Error:
-```sql
--- Re-apply permissions
-GRANT ALL ON ALL TABLES IN SCHEMA kaiten TO service_role;
-NOTIFY pgrst, 'reload config';
-```
-
-### Sync Hangs/Timeouts:
-- Check Vercel function logs for errors
-- Verify Kaiten API is responding
-- Check if timeout is during fetch or upsert phase
-- Consider splitting into smaller syncs
-
-### Missing Data:
-- Check sync_logs for errors
-- Verify FK constraints not blocking (should be removed)
-- Check raw_payload in affected table
-- Re-run sync for specific entity type
-
-### Schema Cache Issues:
-```sql
--- Reload PostgREST cache
-NOTIFY pgrst, 'reload config';
+# Kaiten
+KAITEN_API_URL=https://company.kaiten.ru
+KAITEN_API_TOKEN=xxx
 ```
 
 ---
 
-**Last Updated:** 2025-11-22
-**Status:** ✅ Ready to Deploy (migration pending)
-**Sync Performance:** ~39s for 999 cards (includes card_members sync)
-**Data Completeness:** 999/999 cards synced
-**Latest Changes:**
-- Fixed `space_id` NULL values (extracts from nested structure)
-- Added `card_members` M:N table with batch-optimized sync
-- Preserved performance optimizations (batch operations)
+**Last Updated:** 2025-12-02
+**Status:** ✅ Production Ready
 
-
-# ✅ Supabase + Kaiten Integration - Setup Complete
-
-## 🎯 Current Status (2025-11-25)
-
-**✅ SYNC IS FULLY WORKING!**
-- **Cards:** All 999+ cards syncing correctly (pagination fixed).
-- **Time Logs:** Full history syncing via "Parallel Year Sync" (12 months parallel).
-- **Performance:** ~15-20s for incremental updates.
-
-### Latest Improvements:
-1. **Vercel Stability:** Switched from fire-and-forget to `await` pattern to prevent container freezing.
-2. **Parallel Time Logs:** Added capability to sync full year in parallel streams.
-3. **Data Warehouse Mode:** FK constraints removed from `cards` and `time_logs` for maximum data retention.
-4. **Accurate Stats:** UI now shows real DB counts even during parallel updates.
-
----
-
-## 🚀 How to Run Sync
-
-### Standard:
-- **"🔄 Полная синхронизация"** — Syncs structure, users, and cards (optimized, excludes heavy time logs).
-- **"⚡ Обновить изменения"** — Quick incremental sync for all entities (including recent time logs).
-
-### Heavy Data:
-- **"🚀 Загрузить весь год"** — Special parallel handler for Time Logs (bypasses dependencies check for speed).
-
----
-
-## ⚠️ Architecture Note
-**Time Logs & Cards Relationship:**
-We intentionally removed Foreign Keys (`time_logs_card_id_fkey`).
-- **Why:** To allow fast parallel syncing of logs without checking if every card exists.
-- **Usage:** Always use `LEFT JOIN kaiten.cards` when querying time logs for reports.
+### All Features Working:
+- ✅ Cards, boards, users, time logs sync
+- ✅ Tree entity roles (access control)
+- ✅ Active space members with roles
+- ✅ **Inactive/deactivated users** linked to spaces
+- ✅ UI with filters including "👻 Только неактивные"
