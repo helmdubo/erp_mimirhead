@@ -311,22 +311,27 @@ export const kaitenClient = {
 
   /**
    * Получить участников конкретного space с их ролями
+   * @param includeInactive - включить неактивных пользователей
    */
-  async getSpaceUsers(spaceId: number): Promise<KaitenSpaceUser[]> {
-    return fetchKaiten<KaitenSpaceUser[]>(`spaces/${spaceId}/users`);
+  async getSpaceUsers(spaceId: number, includeInactive = false): Promise<KaitenSpaceUser[]> {
+    const params: Record<string, string> = {};
+    if (includeInactive) {
+      params.inactive = 'true';
+    }
+    return fetchKaiten<KaitenSpaceUser[]>(`spaces/${spaceId}/users`, params);
   },
 
   /**
-   * Получить всех участников всех spaces
+   * Получить всех участников всех spaces (включая неактивных)
    * Возвращает массив объектов { spaceId, users }
    */
   async getAllSpaceMembers(): Promise<Array<{ spaceId: number; users: KaitenSpaceUser[] }>> {
-    console.log("📥 Fetching all space members...");
+    console.log("📥 Fetching all space members (active + inactive)...");
     const spaces = await this.getSpaces();
     console.log(`📥 Found ${spaces.length} spaces to fetch members from`);
     
     const allSpaceMembers: Array<{ spaceId: number; users: KaitenSpaceUser[] }> = [];
-    const chunkSize = 3; // Меньше чанк для /users эндпоинта
+    const chunkSize = 2; // Уменьшаем чанк т.к. теперь 2 запроса на space
 
     for (let i = 0; i < spaces.length; i += chunkSize) {
       const chunk = spaces.slice(i, i + chunkSize);
@@ -334,16 +339,28 @@ export const kaitenClient = {
       
       const results = await Promise.allSettled(
         chunk.map(async (space) => {
-          const users = await fetchKaiten<KaitenSpaceUser[]>(`spaces/${space.id}/users`);
-          console.log(`   Space ${space.id} (${space.title}): ${users.length} users`);
+          // Запрос 1: активные пользователи
+          const activeUsers = await fetchKaiten<KaitenSpaceUser[]>(`spaces/${space.id}/users`);
+          
+          // Запрос 2: неактивные пользователи
+          const inactiveUsers = await fetchKaiten<KaitenSpaceUser[]>(`spaces/${space.id}/users`, { inactive: 'true' });
+          
+          // Объединяем (используем Map чтобы избежать дубликатов по user_id)
+          const usersMap = new Map<number, KaitenSpaceUser>();
+          activeUsers.forEach(u => usersMap.set(u.id, u));
+          inactiveUsers.forEach(u => usersMap.set(u.id, u));
+          
+          const allUsers = Array.from(usersMap.values());
+          
+          console.log(`   Space ${space.id} (${space.title}): ${activeUsers.length} active + ${inactiveUsers.length} inactive = ${allUsers.length} total`);
           
           // Диагностика первого пользователя
-          if (users.length > 0) {
-            const first = users[0];
+          if (allUsers.length > 0) {
+            const first = allUsers[0];
             console.log(`   Sample user ${first.id}: own_role_ids=${JSON.stringify(first.own_role_ids)}, role_ids=${JSON.stringify(first.role_ids)}`);
           }
           
-          return { spaceId: space.id, users };
+          return { spaceId: space.id, users: allUsers };
         })
       );
 
@@ -357,7 +374,7 @@ export const kaitenClient = {
 
       // Пауза между чанками для rate limiting
       if (i + chunkSize < spaces.length) {
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        await new Promise((resolve) => setTimeout(resolve, 300));
       }
     }
 

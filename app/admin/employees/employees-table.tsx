@@ -284,9 +284,8 @@ export function EmployeesTable({ members, summary, roles, spaces }: EmployeesTab
                   <th className="px-4 py-3">Пользователь</th>
                   <th className="px-4 py-3">Email</th>
                   <th className="px-4 py-3 text-center">Spaces</th>
-                  <th className="px-4 py-3 text-center">Ролей</th>
                   <th className="px-4 py-3">Роли</th>
-                  <th className="px-4 py-3">Spaces</th>
+                  <th className="px-4 py-3">Проекты</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -297,7 +296,6 @@ export function EmployeesTable({ members, summary, roles, spaces }: EmployeesTab
                     </td>
                     <td className="px-4 py-3 text-slate-500">{user.email}</td>
                     <td className="px-4 py-3 text-center">{user.spaces_count}</td>
-                    <td className="px-4 py-3 text-center">{user.unique_roles_count}</td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
                         {user.role_names?.filter(Boolean).map((role, i) => (
