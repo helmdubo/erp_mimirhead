@@ -346,6 +346,18 @@ export class SyncOrchestrator {
 
     console.log(`📦 [space_members] Prepared ${memberRows.length} member-role records`);
     
+    // Диагностика: сколько inactive записей
+    const inactiveCount = memberRows.filter(r => r.is_inactive).length;
+    const activeCount = memberRows.filter(r => !r.is_inactive).length;
+    console.log(`📊 [space_members] Active: ${activeCount}, Inactive: ${inactiveCount}`);
+    
+    if (inactiveCount > 0) {
+      console.log(`👻 [space_members] Inactive users to insert:`);
+      memberRows.filter(r => r.is_inactive).forEach(r => {
+        console.log(`   - user_id=${r.user_id}, space_id=${r.space_id}, role_id=${r.role_id}`);
+      });
+    }
+    
     if (memberRows.length === 0) {
       console.warn(`⚠️ [space_members] No records to insert! Check API response structure.`);
       return {
