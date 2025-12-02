@@ -68,7 +68,7 @@ export default async function EmployeesPage() {
               <Link href="/admin/sync" className="underline hover:no-underline">
                 Синхронизацию
               </Link>{" "}
-              и нажмите кнопку "👥 Роли доступа и участники"
+              и нажмите кнопку «👥 Роли доступа и участники»
             </p>
           </div>
         )}
