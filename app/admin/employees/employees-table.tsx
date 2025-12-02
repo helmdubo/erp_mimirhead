@@ -24,6 +24,7 @@ export function EmployeesTable({ members, summary, roles, spaces }: EmployeesTab
   const [selectedRoles, setSelectedRoles] = useState<Set<string>>(new Set());
   const [showCustomRolesOnly, setShowCustomRolesOnly] = useState(false);
   const [showGroupRolesOnly, setShowGroupRolesOnly] = useState(false);
+  const [showInactiveOnly, setShowInactiveOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
   // Колонки для отображения
@@ -40,9 +41,10 @@ export function EmployeesTable({ members, summary, roles, spaces }: EmployeesTab
   const filteredMembers = useMemo(() => {
     return members.filter((m) => {
       if (selectedSpaces.size > 0 && !selectedSpaces.has(m.space_id)) return false;
-      if (selectedRoles.size > 0 && !selectedRoles.has(m.role_id)) return false;
+      if (selectedRoles.size > 0 && m.role_id && !selectedRoles.has(m.role_id)) return false;
       if (showCustomRolesOnly && !m.is_custom_role) return false;
       if (showGroupRolesOnly && !m.is_from_group) return false;
+      if (showInactiveOnly && !m.is_inactive) return false;
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         if (
@@ -55,7 +57,7 @@ export function EmployeesTable({ members, summary, roles, spaces }: EmployeesTab
       }
       return true;
     });
-  }, [members, selectedSpaces, selectedRoles, showCustomRolesOnly, showGroupRolesOnly, searchQuery]);
+  }, [members, selectedSpaces, selectedRoles, showCustomRolesOnly, showGroupRolesOnly, showInactiveOnly, searchQuery]);
 
   // Фильтрация сводки
   const filteredSummary = useMemo(() => {
@@ -99,6 +101,7 @@ export function EmployeesTable({ members, summary, roles, spaces }: EmployeesTab
     setSelectedRoles(new Set());
     setShowCustomRolesOnly(false);
     setShowGroupRolesOnly(false);
+    setShowInactiveOnly(false);
     setSearchQuery("");
   };
 
@@ -107,6 +110,7 @@ export function EmployeesTable({ members, summary, roles, spaces }: EmployeesTab
     selectedRoles.size > 0 || 
     showCustomRolesOnly || 
     showGroupRolesOnly || 
+    showInactiveOnly ||
     searchQuery;
 
   return (
@@ -241,6 +245,15 @@ export function EmployeesTable({ members, summary, roles, spaces }: EmployeesTab
               />
               Только роли через группы
             </label>
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={showInactiveOnly}
+                onChange={(e) => setShowInactiveOnly(e.target.checked)}
+                className="rounded border-slate-300"
+              />
+              👻 Только неактивные
+            </label>
           </div>
         )}
 
@@ -345,9 +358,10 @@ export function EmployeesTable({ members, summary, roles, spaces }: EmployeesTab
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredMembers.map((m, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50">
+                  <tr key={idx} className={`hover:bg-slate-50 ${m.is_inactive ? "opacity-60" : ""}`}>
                     {visibleColumns.user && (
                       <td className="px-4 py-3 font-medium text-slate-900">
+                        {m.is_inactive && <span title="Деактивирован">👻 </span>}
                         {m.user_name}
                       </td>
                     )}
@@ -365,12 +379,14 @@ export function EmployeesTable({ members, summary, roles, spaces }: EmployeesTab
                       <td className="px-4 py-3">
                         <span
                           className={`rounded px-2 py-0.5 text-xs ${
-                            m.is_custom_role
+                            m.is_inactive
+                              ? "bg-slate-200 text-slate-500 italic"
+                              : m.is_custom_role
                               ? "bg-purple-100 text-purple-700"
                               : "bg-slate-100 text-slate-700"
                           }`}
                         >
-                          {m.role_name}
+                          {m.is_inactive ? "👻 Неактивен" : m.role_name}
                         </span>
                       </td>
                     )}

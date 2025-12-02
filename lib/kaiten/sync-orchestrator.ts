@@ -259,24 +259,18 @@ export class SyncOrchestrator {
     const memberRows: Array<{
       space_id: number;
       user_id: number;
-      role_id: string;
+      role_id: string | null;  // NULL для деактивированных пользователей
       is_from_group: boolean;
       group_id: number | null;
+      is_inactive: boolean;    // true для деактивированных
     }> = [];
 
     for (const { spaceId, users } of allSpaceData) {
       console.log(`🔍 [space_members] Space ${spaceId}: ${users.length} users`);
       
       for (const user of users) {
-        // Диагностика: что есть у пользователя
-        const hasOwnRoles = user.own_role_ids && user.own_role_ids.length > 0;
-        const hasRoleIds = user.role_ids && user.role_ids.length > 0;
-        const hasGroupRoles = user.own_groups_role_ids && user.own_groups_role_ids.length > 0;
-        
-        if (!hasOwnRoles && !hasRoleIds && !hasGroupRoles) {
-          console.log(`⚠️ [space_members] User ${user.id} (${user.full_name}) has NO roles in space ${spaceId}`);
-          console.log(`   raw role data: own_role_ids=${JSON.stringify(user.own_role_ids)}, role_ids=${JSON.stringify(user.role_ids)}`);
-        }
+        // Считаем сколько записей было ДО обработки этого пользователя
+        const countBefore = memberRows.filter(r => r.space_id === spaceId && r.user_id === user.id).length;
 
         // Добавляем собственные роли пользователя
         if (user.own_role_ids && Array.isArray(user.own_role_ids)) {
@@ -287,6 +281,7 @@ export class SyncOrchestrator {
               role_id: roleId,
               is_from_group: false,
               group_id: null,
+              is_inactive: false,
             });
           }
         }
@@ -305,6 +300,7 @@ export class SyncOrchestrator {
               role_id: roleId,
               is_from_group: true,
               group_id: groupId,
+              is_inactive: false,
             });
           }
         }
@@ -324,9 +320,26 @@ export class SyncOrchestrator {
                 role_id: roleId,
                 is_from_group: false,
                 group_id: null,
+                is_inactive: false,
               });
             }
           }
+        }
+
+        // ВАЖНО: Если у пользователя НЕТ ролей — это деактивированный пользователь
+        // Добавляем его с role_id = null и is_inactive = true
+        const countAfter = memberRows.filter(r => r.space_id === spaceId && r.user_id === user.id).length;
+        if (countAfter === countBefore) {
+          // Пользователь не получил ни одной роли — он деактивирован
+          console.log(`👻 [space_members] Inactive user ${user.id} (${user.full_name}) in space ${spaceId}`);
+          memberRows.push({
+            space_id: spaceId,
+            user_id: user.id,
+            role_id: null,
+            is_from_group: false,
+            group_id: null,
+            is_inactive: true,
+          });
         }
       }
     }

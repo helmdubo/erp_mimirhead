@@ -8,11 +8,12 @@ export interface SpaceMemberDetail {
   user_id: number;
   user_name: string;
   user_email: string;
-  role_id: string;
-  role_name: string;
+  role_id: string | null;  // NULL для деактивированных
+  role_name: string;       // "Неактивен" для деактивированных
   is_from_group: boolean;
   group_id: number | null;
   is_custom_role: boolean;
+  is_inactive: boolean;    // true для деактивированных пользователей
 }
 
 export interface UserRoleSummary {
@@ -23,6 +24,7 @@ export interface UserRoleSummary {
   unique_roles_count: number;
   role_names: string[];
   space_titles: string[];
+  has_inactive_membership: boolean;  // true если есть хоть одно неактивное участие
 }
 
 export interface TreeEntityRole {
