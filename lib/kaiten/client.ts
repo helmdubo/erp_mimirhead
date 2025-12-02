@@ -339,11 +339,17 @@ export const kaitenClient = {
       
       const results = await Promise.allSettled(
         chunk.map(async (space) => {
-          // Запрос 1: активные пользователи
-          const activeUsers = await fetchKaiten<KaitenSpaceUser[]>(`spaces/${space.id}/users`);
+          // Запрос 1: активные пользователи (с inherited access)
+          const activeUsers = await fetchKaiten<KaitenSpaceUser[]>(
+            `spaces/${space.id}/users`, 
+            { include_inherited_access: 'true' }
+          );
           
-          // Запрос 2: неактивные пользователи
-          const inactiveUsers = await fetchKaiten<KaitenSpaceUser[]>(`spaces/${space.id}/users`, { inactive: 'true' });
+          // Запрос 2: неактивные пользователи (с inherited access)
+          const inactiveUsers = await fetchKaiten<KaitenSpaceUser[]>(
+            `spaces/${space.id}/users`, 
+            { include_inherited_access: 'true', inactive: 'true' }
+          );
           
           // Объединяем (используем Map чтобы избежать дубликатов по user_id)
           const usersMap = new Map<number, KaitenSpaceUser>();
@@ -354,10 +360,12 @@ export const kaitenClient = {
           
           console.log(`   Space ${space.id} (${space.title}): ${activeUsers.length} active + ${inactiveUsers.length} inactive = ${allUsers.length} total`);
           
-          // Диагностика первого пользователя
-          if (allUsers.length > 0) {
-            const first = allUsers[0];
-            console.log(`   Sample user ${first.id}: own_role_ids=${JSON.stringify(first.own_role_ids)}, role_ids=${JSON.stringify(first.role_ids)}`);
+          // Диагностика неактивных пользователей
+          if (inactiveUsers.length > 0) {
+            console.log(`   📋 Inactive users in space ${space.id}:`);
+            inactiveUsers.forEach(u => {
+              console.log(`      - ${u.id} (${u.full_name}): role_ids=${JSON.stringify(u.role_ids)}, own_role_ids=${JSON.stringify(u.own_role_ids)}`);
+            });
           }
           
           return { spaceId: space.id, users: allUsers };
