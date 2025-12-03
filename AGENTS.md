@@ -55,8 +55,6 @@ ERP-mimirhead/
 
 ---
 
----
-
 ## 4. Critical Architecture Rules (DO NOT BREAK)
 
 ### ⚡ Server Actions & Vercel Runtime
@@ -77,3 +75,41 @@ ERP-mimirhead/
 
 - **Why:** This is an analytical replica. We need raw data even if parents (users/boards) are deleted or not yet synced.
 - **Implementation:** Use `LEFT JOIN` in queries to handle missing relations.
+
+---
+
+## 5. Kaiten API Integration (RAG System)
+
+You have access to the Kaiten API documentation stored in this repository as a JSONL file: `KAITEN_API_RAG.jsonl` (or `kaiten_api/api.jsonl`).
+
+**Core Principle:** Never load the entire file into context. Save tokens and precision.
+
+### File Structure
+Each line in the file describes one API endpoint with:
+- `id` — operationId
+- `method` — HTTP method
+- `path` — URL path
+- `search_content` — Keywords for retrieval
+- `schema` — Compact Markdown describing request/response fields
+
+### Retrieval Process
+1. **Extract Intent:** Identify keywords from the user request (e.g., "create space", "get users", "update lane").
+2. **Search:** Scan `search_content` using substring/keyword matching.
+3. **Select:** Pick the best matching endpoint.
+   - *If several match significantly, list them to the user and ask for clarification.*
+4. **Load Schema:** Read ONLY the `schema` field of the selected line.
+   - Use it to determine URL, Method, and Body structure.
+
+### Request Construction Rules
+1. **Fields:** Use exact field names from the `schema` bullet list.
+2. **Required:** Always include required fields.
+3. **Placeholders:** If the URL contains placeholders like `{space_id}` or `{board_id}`:
+   - Extract the value from the user's prompt.
+   - **If the value is missing — ASK the user.** Do not guess IDs.
+4. **Method:** Follow the `method` exactly (Note: Kaiten often uses POST for retrieval).
+5. **Data Types:** Respect strict types (string, number, boolean, array).
+6. **Headers:** Always set this header unless documentation says otherwise:
+   ```http
+   Content-Type: application/json
+   
+---
