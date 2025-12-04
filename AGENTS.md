@@ -113,3 +113,24 @@ Each line in the file describes one API endpoint with:
    Content-Type: application/json
    
 ---
+
+## 6. Database Workflow (GitOps)
+**Source of Truth:** `supabase/reference_schema.sql` (READ-ONLY).
+**Types:** `types/database.types.ts` (Auto-generated).
+
+### How to Modify DB:
+1. **Analyze:** Check `reference_schema.sql` for current structure.
+2. **Create:** Write pure SQL migration in `supabase/migrations/`.
+   - Naming: `YYYYMMDDHHMMSS_description.sql`.
+   - Syntax: Postgres SQL.
+3. **Schemas:** Explicitly use `public`, `kaiten`, `hr`, `ops`, `ref`.
+   - Example: `CREATE TABLE hr.employees (...)`.
+4. **Security:** ALWAYS enable RLS and add Policies.
+5. **NEVER:** Edit schema dumps or type files manually.
+
+## 3. Data Access Pattern
+- **Read:** Call `createClient()` in Server Components. Direct DB query.
+- **Write:** Use Server Actions (`'use server'`) + Zod validation.
+- **Typing:** Import `Database` from `@/types/database.types`.
+  ```ts
+  const supabase = createClient<Database>()
