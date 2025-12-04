@@ -114,23 +114,25 @@ Each line in the file describes one API endpoint with:
    
 ---
 
-## 6. Database Workflow (GitOps)
-**Source of Truth:** `supabase/reference_schema.sql` (READ-ONLY).
-**Types:** `types/database.types.ts` (Auto-generated).
+## 6. Database Contract for AI Agents
 
-### How to Modify DB:
-1. **Analyze:** Check `reference_schema.sql` for current structure.
-2. **Create:** Write pure SQL migration in `supabase/migrations/`.
-   - Naming: `YYYYMMDDHHMMSS_description.sql`.
-   - Syntax: Postgres SQL.
-3. **Schemas:** Explicitly use `public`, `kaiten`, `hr`, `ops`, `ref`.
-   - Example: `CREATE TABLE hr.employees (...)`.
-4. **Security:** ALWAYS enable RLS and add Policies.
-5. **NEVER:** Edit schema dumps or type files manually.
+### Core Rules
+1. **Source of Truth:** `supabase/reference_schema.sql` (READ ONLY).
+2. **Types:** `types/database.types.ts` (READ ONLY).
+3. **Execution Environment:** GitHub Actions ONLY. No local CLI access.
 
-## 3. Data Access Pattern
-- **Read:** Call `createClient()` in Server Components. Direct DB query.
-- **Write:** Use Server Actions (`'use server'`) + Zod validation.
-- **Typing:** Import `Database` from `@/types/database.types`.
-  ```ts
-  const supabase = createClient<Database>()
+### Workflow to Change Database
+If you need to add tables/columns:
+1.  **Read** `reference_schema.sql` to understand current state.
+2.  **Create** a migration file in `supabase/migrations/`:
+    - Name format: `YYYYMMDDHHMMSS_brief_description.sql` (use UTC time).
+    - Content: Pure PostgreSQL (`CREATE TABLE`, `ALTER TABLE`, etc.).
+    - Security: ALWAYS add RLS policies for new tables.
+    - Schemas: Explicitly specify schemas (`kaiten.table`, `hr.table`).
+3.  **Push** to repository.
+4.  **Wait** for GitHub Action to commit back the updated `reference_schema.sql`.
+
+### FORBIDDEN
+- DO NOT generate code using `prisma` or ORMs.
+- DO NOT try to run `supabase db push` locally.
+- DO NOT edit `reference_schema.sql` manually.
