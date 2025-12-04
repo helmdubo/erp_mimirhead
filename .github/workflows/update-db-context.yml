@@ -1,7 +1,6 @@
 name: Supabase GitOps & Context Update
 
 on:
-  # Срабатывает при пуше новых миграций
   push:
     branches:
       - main
@@ -9,14 +8,13 @@ on:
       - "codex/**"
     paths:
       - 'supabase/migrations/**'
-  # Позволяет запустить вручную кнопку "Run workflow" в GitHub Actions
   workflow_dispatch:
 
 jobs:
   deploy-and-update:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Разрешаем боту делать коммиты
+      contents: write
 
     steps:
       - name: Checkout repo
@@ -27,9 +25,9 @@ jobs:
         with:
           version: latest
 
-      # 2. Делаем снимок схемы (SQL) для Агента
       - name: Generate SQL snapshot for agents
         run: |
+          mkdir -p supabase
           supabase db dump \
             --schema public,auth,kaiten,hr,ops,ref \
             > supabase/reference_schema.sql
@@ -37,7 +35,6 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
 
-      # 3. Генерируем TS типы для кода
       - name: Generate TypeScript database types
         run: |
           mkdir -p types
@@ -48,7 +45,6 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
-      # 4. Коммитим результат обратно
       - name: Commit updated schema & types
         run: |
           git config --global user.name "Supabase Bot"
