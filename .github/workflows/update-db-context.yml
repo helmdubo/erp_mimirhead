@@ -41,7 +41,7 @@ jobs:
         run: |
           mkdir -p supabase
           supabase db dump \
-            --schema public,auth,kaiten,hr,ops,ref \
+            --schema public,kaiten,hr,ops,ref \
             > supabase/reference_schema.sql
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
