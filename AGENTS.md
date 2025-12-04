@@ -80,7 +80,7 @@ ERP-mimirhead/
 
 ## 5. Kaiten API Integration (RAG System)
 
-You have access to the Kaiten API documentation stored in this repository as a JSONL file: `KAITEN_API_RAG.jsonl` (or `kaiten_api/api.jsonl`).
+You have access to the Kaiten API documentation stored in this repository as a JSONL file: `kaiten_api/KAITEN_API_RAG.jsonl` (or `kaiten_api/api.jsonl`).
 
 **Core Principle:** Never load the entire file into context. Save tokens and precision.
 
