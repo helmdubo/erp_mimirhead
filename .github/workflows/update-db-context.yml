@@ -1,6 +1,7 @@
 name: Supabase GitOps & Context Update
 
 on:
+  # Срабатывает при пуше новых миграций
   push:
     branches:
       - main
@@ -8,6 +9,7 @@ on:
       - "codex/**"
     paths:
       - 'supabase/migrations/**'
+  # Кнопка "Run workflow" вручную
   workflow_dispatch:
 
 jobs:
@@ -25,6 +27,16 @@ jobs:
         with:
           version: latest
 
+      # 🔑 Сначала линкуем проект в CI
+      - name: Link Supabase project
+        run: |
+          supabase link \
+            --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} \
+            --password ${{ secrets.SUPABASE_DB_PASSWORD }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      # 2. Делаем снимок схемы (SQL) для агента
       - name: Generate SQL snapshot for agents
         run: |
           mkdir -p supabase
@@ -35,6 +47,7 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
 
+      # 3. Генерируем TS-типы для кода
       - name: Generate TypeScript database types
         run: |
           mkdir -p types
@@ -45,6 +58,7 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
+      # 4. Коммитим результат обратно
       - name: Commit updated schema & types
         run: |
           git config --global user.name "Supabase Bot"
