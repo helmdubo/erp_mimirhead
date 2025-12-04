@@ -1,0 +1,57 @@
+name: Update Database Snapshot
+
+on:
+  push:
+    branches:
+      - main  # или master
+    paths:
+      - 'supabase/migrations/**' # Срабатывает ТОЛЬКО если есть новые миграции
+
+jobs:
+  update-snapshot:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Важно! Дает право боту делать коммиты в репозиторий
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # 1. Применяем миграции к удаленной базе (Deploy)
+      - name: Apply Migrations to Remote
+        run: supabase db push
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+
+      # 2. Делаем свежий снимок (Snapshot) с обновленной базы
+      - name: Generate SQL Snapshot
+        run: supabase db dump --project-id ${{ secrets.SUPABASE_PROJECT_ID }} --schema public > supabase/reference_schema.sql
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+      # 3. (Опционально) Генерируем TS типы
+      - name: Generate TypeScript Types
+        run: supabase gen types typescript --project-id ${{ secrets.SUPABASE_PROJECT_ID }} --schema public > types/database.types.ts
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      # 4. Коммитим изменения обратно в репозиторий
+      - name: Commit and Push Snapshot
+        run: |
+          git config --global user.name "Supabase Schema Bot"
+          git config --global user.email "bot@supabase.io"
+          
+          # Проверяем, изменилось ли что-то, чтобы не делать пустых коммитов
+          if [[ -n $(git status --porcelain) ]]; then
+            git add supabase/reference_schema.sql types/database.types.ts
+            git commit -m "chore: auto-update schema snapshot [skip ci]"
+            git push
+          else
+            echo "No schema changes detected"
+          fi
